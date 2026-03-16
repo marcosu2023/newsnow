@@ -563,5 +563,45 @@
     "color": "green",
     "interval": 1800000,
     "title": "热播榜"
+  },
+  "caixin": {
+    "name": "财新网",
+    "type": "realtime",
+    "column": "finance",
+    "home": "https://www.caixin.com",
+    "color": "red",
+    "interval": 600000
+  },
+  "reuters": {
+    "name": "路透社",
+    "type": "realtime",
+    "column": "world",
+    "home": "https://www.reuters.com",
+    "color": "orange",
+    "interval": 600000
+  },
+  "bloomberg": {
+    "name": "彭博社",
+    "type": "realtime",
+    "column": "finance",
+    "home": "https://www.bloomberg.com",
+    "color": "purple",
+    "interval": 600000
+  },
+  "wsj": {
+    "name": "华尔街日报",
+    "type": "realtime",
+    "column": "finance",
+    "home": "https://www.wsj.com",
+    "color": "blue",
+    "interval": 600000
+  },
+  "ft": {
+    "name": "金融时报",
+    "type": "realtime",
+    "column": "finance",
+    "home": "https://www.ft.com",
+    "color": "pink",
+    "interval": 600000
   }
 }

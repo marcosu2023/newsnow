@@ -483,6 +483,41 @@ export const originSources = {
       },
     },
   },
+  "caixin": {
+    name: "财新网",
+    type: "realtime",
+    column: "finance",
+    color: "red",
+    home: "https://www.caixin.com",
+  },
+  "reuters": {
+    name: "路透社",
+    type: "realtime",
+    column: "world",
+    color: "orange",
+    home: "https://www.reuters.com",
+  },
+  "bloomberg": {
+    name: "彭博社",
+    type: "realtime",
+    column: "finance",
+    color: "purple",
+    home: "https://www.bloomberg.com",
+  },
+  "wsj": {
+    name: "华尔街日报",
+    type: "realtime",
+    column: "finance",
+    color: "blue",
+    home: "https://www.wsj.com",
+  },
+  "ft": {
+    name: "金融时报",
+    type: "realtime",
+    column: "finance",
+    color: "pink",
+    home: "https://www.ft.com",
+  },
 } as const satisfies Record<string, OriginSource>
 
 export function genSources() {
