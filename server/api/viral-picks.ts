@@ -1,11 +1,5 @@
 import type { ScoredItem } from "../lib/viral-scorer"
 
-function getBaseUrl(): string {
-  if (process.env.NUXT_SITE_URL) return process.env.NUXT_SITE_URL
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
-  return "http://localhost:3000"
-}
-
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
 }
@@ -69,13 +63,13 @@ function renderCard(item: ScoredItem, idx: number): string {
 }
 
 export default defineEventHandler(async (event) => {
-  const baseUrl = getBaseUrl()
+  // Use internal $fetch (Nitro handles it as a direct call, no HTTP round-trip)
   const data = await $fetch<{
     timestamp: string
     totalScanned: number
     sourcesScanned: number
     picks: ScoredItem[]
-  }>(`${baseUrl}/api/viral-scan`)
+  }>("/api/viral-scan")
 
   const top10 = data.picks.slice(0, 10)
   const ts = new Date(data.timestamp).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })
