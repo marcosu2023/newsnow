@@ -1,6 +1,5 @@
-// 选题评分模型 v2 — 三层选题因子 + 自见风险融入主评分
+// 选题评分模型 — 三层选题因子 + 中国贴近性 + 自见风险 + 时间衰减
 // 基于1000条短视频（796公开+201自见）的因子分析
-// 去掉了所有文案修辞因子，只保留新闻事件本身的属性
 
 export interface ScoredItem {
   title: string
@@ -15,12 +14,13 @@ export interface ScoredItem {
   socialHits: string[]
   riskHits: { label: string; svRate: number }[]
   svPenalty: number
+  chinaBoost: boolean
   sourceWeight: number
+  hoursAgo: number
   finalScore: number
 }
 
 // ===== LAYER 1: 话题领域 (Story Domain) =====
-// lift = 该话题爆款率 / 基线爆款率(10.1%)
 const DOMAIN_RULES: { id: string; label: string; lift: number; re: RegExp }[] = [
   { id: "crisis", label: "企业暴雷危机", lift: 2.30, re: /破产|欠薪|拖欠|停产|清盘|违约|展期|资不抵债|倒闭|闪崩|暴雷/ },
   { id: "ma", label: "企业并购重组", lift: 2.13, re: /收购|并购|出售|接盘|私有化|易主|重组|合并|拆分|剥离/ },
@@ -60,8 +60,10 @@ const SOCIAL_RULES: { id: string; label: string; lift: number; re: RegExp }[] = 
   { id: "anxiety", label: "焦虑触发", lift: 1.39, re: /失业|裁员|降薪|下滑|收缩|萎缩|危机|困境|困难/ },
 ]
 
-// ===== 自见风险 (Self-Visible Risk) — 融入主评分 =====
-// svRate = 该类话题被设为自见的比例，作为惩罚系数
+// ===== 中国贴近性 (China Proximity) =====
+const CHINA_RE = /中国|中资|中企|国内|境内|内地|A股|沪指|深指|港股|人民币|央行|国务院|发改委|商务部|工信部|财政部|证监会|银保监|北京|上海|广州|深圳|香港|澳门|粤港澳|长三角|珠三角|对华|在华|赴华|华为|腾讯|阿里|百度|京东|美团|比亚迪|小米|字节|蔚来|小鹏|哪吒|极越|安踏|万科|恒大|碧桂园|融创|宁德时代|中芯|大疆/
+
+// ===== 自见风险 =====
 const RISK_RULES: { id: string; label: string; svRate: number; re: RegExp }[] = [
   { id: "r_disaster", label: "自然灾害伤亡", svRate: 64, re: /台风|地震|火灾|洪灾|爆炸|灾害|火山|死亡|遇难|伤亡/ },
   { id: "r_tech", label: "技术管制细节", svRate: 60, re: /AI芯片.*国产化|芯片.*[禁限管].*使用|技术出口.*限制|稀土.*出口.*许可/ },
@@ -74,61 +76,48 @@ const RISK_RULES: { id: string; label: string; svRate: number; re: RegExp }[] = 
   { id: "r_tt", label: "TikTok字节", svRate: 35, re: /TikTok|字节跳动/ },
 ]
 
-// 五大权重源
 const PRIORITY_SOURCES = new Set(["caixin", "reuters", "bloomberg", "wsj", "ft"])
 
-export function scoreTitle(title: string, sourceId: string, sourceName: string): Omit<ScoredItem, "url" | "pubDate"> {
-  // --- Layer 1: Domain ---
+export function scoreTitle(title: string, sourceId: string, sourceName: string, pubDate?: number): Omit<ScoredItem, "url"> {
   const domainHits: string[] = []
   let domainLift = 1.0
   for (const r of DOMAIN_RULES) {
     if (r.re.test(title)) {
       domainHits.push(r.label)
-      // 取最高的domain lift（不叠加，因为一条新闻通常属于一个主领域）
       if (r.lift > domainLift) domainLift = r.lift
     }
   }
 
-  // --- Layer 2: Scale ---
   const scaleHits: string[] = []
   let scaleLift = 1.0
   for (const r of SCALE_RULES) {
     if (r.re.test(title)) {
       scaleHits.push(r.label)
-      // 规模因子可叠加但递减：第二个命中只加50%增量
-      if (scaleLift === 1.0) {
-        scaleLift = r.lift
-      } else {
-        scaleLift *= (1 + (r.lift - 1) * 0.5)
-      }
+      if (scaleLift === 1.0) scaleLift = r.lift
+      else scaleLift *= (1 + (r.lift - 1) * 0.5)
     }
   }
 
-  // --- Layer 3: Social Resonance ---
   const socialHits: string[] = []
   let socialLift = 1.0
   for (const r of SOCIAL_RULES) {
     if (r.re.test(title)) {
       socialHits.push(r.label)
-      // 社交因子可叠加但递减
-      if (socialLift === 1.0) {
-        socialLift = r.lift
-      } else {
-        socialLift *= (1 + (r.lift - 1) * 0.5)
-      }
+      if (socialLift === 1.0) socialLift = r.lift
+      else socialLift *= (1 + (r.lift - 1) * 0.5)
     }
   }
 
-  // --- Combo Bonus: 三层同时命中额外加成 ---
   const layersHit = (domainHits.length > 0 ? 1 : 0) + (scaleHits.length > 0 ? 1 : 0) + (socialHits.length > 0 ? 1 : 0)
   let comboMultiplier = 1.0
-  if (layersHit === 3) comboMultiplier = 1.3    // 三层叠加：30%加成
-  else if (layersHit === 2) comboMultiplier = 1.1 // 两层叠加：10%加成
+  if (layersHit === 3) comboMultiplier = 1.3
+  else if (layersHit === 2) comboMultiplier = 1.1
 
-  // --- Base Score ---
-  let score = 10.0 * domainLift * scaleLift * socialLift * comboMultiplier
+  const chinaBoost = CHINA_RE.test(title)
+  const chinaMultiplier = chinaBoost ? 1.25 : 1.0
 
-  // --- Self-Visible Risk Penalty (融入主评分) ---
+  let score = 10.0 * domainLift * scaleLift * socialLift * comboMultiplier * chinaMultiplier
+
   const riskHits: { label: string; svRate: number }[] = []
   let maxSvRate = 0
   for (const r of RISK_RULES) {
@@ -137,58 +126,41 @@ export function scoreTitle(title: string, sourceId: string, sourceName: string):
       if (r.svRate > maxSvRate) maxSvRate = r.svRate
     }
   }
-  // 自见惩罚：svRate越高，扣分越重
-  // svRate 50% → score × 0.75 (扣25%)
-  // svRate 60% → score × 0.70 (扣30%)
-  // svRate 35% → score × 0.825 (扣17.5%)
-  const svPenalty = maxSvRate > 0 ? maxSvRate / 200 : 0  // 0~0.35的惩罚系数
+  const svPenalty = maxSvRate > 0 ? maxSvRate / 200 : 0
   score = score * (1 - svPenalty)
 
-  // Clamp
   score = Math.min(Math.max(Math.round(score * 10) / 10, 1), 95)
 
-  // Grade
   let grade = "D"
   if (score >= 30) grade = "S"
   else if (score >= 20) grade = "A"
   else if (score >= 13) grade = "B"
   else if (score >= 8) grade = "C"
 
-  // Source weight
   const sourceWeight = PRIORITY_SOURCES.has(sourceId) ? 1.5 : 1.0
+  const now = Date.now()
+  const hoursAgo = pubDate ? Math.max(0, Math.round((now - pubDate) / 3600000 * 10) / 10) : 0
   const finalScore = Math.round(score * sourceWeight * 10) / 10
 
   return {
-    title,
-    source: sourceName,
-    sourceId,
-    score,
-    grade,
-    domainHits,
-    scaleHits,
-    socialHits,
-    riskHits,
+    title, source: sourceName, sourceId, pubDate, score, grade,
+    domainHits, scaleHits, socialHits, riskHits,
     svPenalty: Math.round(svPenalty * 100),
-    sourceWeight,
-    finalScore,
+    chinaBoost, sourceWeight, hoursAgo, finalScore,
   }
 }
 
 export function scoreAndRank(items: { title: string; url: string; sourceId: string; sourceName: string; pubDate?: number }[]): ScoredItem[] {
   const scored = items.map(item => ({
-    ...scoreTitle(item.title, item.sourceId, item.sourceName),
+    ...scoreTitle(item.title, item.sourceId, item.sourceName, item.pubDate),
     url: item.url,
-    pubDate: item.pubDate,
   }))
 
-  // Deduplicate: same title from different sources, keep highest score
   const seen = new Map<string, ScoredItem>()
   for (const s of scored) {
     const key = s.title.slice(0, 30)
     const existing = seen.get(key)
-    if (!existing || s.finalScore > existing.finalScore) {
-      seen.set(key, s)
-    }
+    if (!existing || s.finalScore > existing.finalScore) seen.set(key, s)
   }
 
   const unique = Array.from(seen.values())
