@@ -1,172 +1,201 @@
+// 选题评分模型 v2 — 三层选题因子 + 自见风险融入主评分
+// 基于1000条短视频（796公开+201自见）的因子分析
+// 去掉了所有文案修辞因子，只保留新闻事件本身的属性
+
 export interface ScoredItem {
   title: string
   url: string
   source: string
   sourceId: string
-  pubDate?: string | number
+  pubDate?: number
   score: number
   grade: string
-  hookLen: number
-  boosts: string[]
-  penalties: string[]
-  risks: { label: string; svRate: number }[]
-  maxRisk: number
+  domainHits: string[]
+  scaleHits: string[]
+  socialHits: string[]
+  riskHits: { label: string; svRate: number }[]
+  svPenalty: number
   sourceWeight: number
   finalScore: number
 }
 
-// ── Boost factors ──────────────────────────────────────────────
-const BOOSTS: { name: string; re: RegExp; weight: number }[] = [
-  { name: "\"为何\"提问", re: /为何|为什么|缘何|因何/, weight: 2.13 },
-  { name: "转折反差词", re: /却|竟|居然|突然|意外/, weight: 2.18 },
-  { name: "民生直击", re: /失业|裁员|降薪|医保|社保|养老|缴费|涨价|房价|票价|工资/, weight: 1.39 },
-  { name: "企业并购", re: /收购|并购|出售|接盘|私有化|易主/, weight: 1.64 },
-  { name: "市场冲击", re: /暴涨|暴跌|飙涨|大跌|崩|创新高|熔断/, weight: 1.50 },
-  { name: "具名实体", re: /特斯拉|苹果|华为|小米|腾讯|阿里|百度|京东|美团|拼多多|字节|安踏|波音|丰田|三星|英伟达|台积电|大众|比亚迪|万科|恒大|碧桂园|哪吒|蔚来|深圳|上海|北京|广州|香港|巴菲特|马斯克|李嘉诚/, weight: 1.15 },
-  { name: "问号结尾", re: /[？?]/, weight: 1.20 },
-  { name: "地缘框架", re: /对华|对美|中美|制裁|关税|贸易战|出口管制/, weight: 1.08 },
+// ===== LAYER 1: 话题领域 (Story Domain) =====
+// lift = 该话题爆款率 / 基线爆款率(10.1%)
+const DOMAIN_RULES: { id: string; label: string; lift: number; re: RegExp }[] = [
+  { id: "crisis", label: "企业暴雷危机", lift: 2.30, re: /破产|欠薪|拖欠|停产|清盘|违约|展期|资不抵债|倒闭|闪崩|暴雷/ },
+  { id: "ma", label: "企业并购重组", lift: 2.13, re: /收购|并购|出售|接盘|私有化|易主|重组|合并|拆分|剥离/ },
+  { id: "rareearth", label: "稀土资源战", lift: 1.83, re: /稀土|锂|矿|资源.*战|资源.*争/ },
+  { id: "health", label: "民生医疗", lift: 1.36, re: /医保|医院|医疗|医生|药|诊疗|卫生/ },
+  { id: "pension", label: "民生社保养老", lift: 1.33, re: /社保|养老|退休|缴费|年金|公积金/ },
+  { id: "market", label: "市场剧烈波动", lift: 1.22, re: /暴涨|暴跌|飙涨|大跌|崩盘|熔断|跌停|涨停|创新高|创新低/ },
+  { id: "auto", label: "汽车新能源", lift: 1.09, re: /新能源|电动车|电池|充电|比亚迪|特斯拉|蔚来|小鹏|理想|哪吒|极越|智驾/ },
+  { id: "job", label: "民生就业", lift: 1.07, re: /失业|裁员|降薪|就业|工资|劳动|求职|招聘|农民工|骑手|司机/ },
+  { id: "price", label: "民生消费价格", lift: 1.07, re: /涨价|电价|水价|油价|票价|房价|房租|物价/ },
+  { id: "chip", label: "科技芯片", lift: 1.00, re: /芯片|半导体|晶圆|光刻|制程|纳米|EDA|AI芯片/ },
+  { id: "ustrade", label: "中美博弈", lift: 0.97, re: /对华|对美|中美|关税|制裁|贸易战|出口管制/ },
+  { id: "earnings", label: "企业财报业绩", lift: 0.83, re: /营收|净利|亏损|盈利|业绩|财报|季度|年报|毛利/ },
+  { id: "ai", label: "科技AI", lift: 0.75, re: /人工智能|AI|大模型|DeepSeek|ChatGPT|算力|数据中心/ },
+  { id: "pop", label: "人口社会", lift: 0.66, re: /人口|出生|少子|老龄|结婚|离婚|生育/ },
+  { id: "edu", label: "民生教育", lift: 0.66, re: /高考|考公|考编|幼儿园|学校|教育|招生|毕业/ },
+  { id: "realestate", label: "地产楼市", lift: 0.60, re: /房地产|楼市|房企|万科|恒大|碧桂园|融创|地王|土拍|限购|公摊/ },
+  { id: "policy", label: "政策监管", lift: 0.58, re: /央行|降息|降准|财政|国务院|发改委|证监会|监管|新规|政策/ },
+  { id: "ipo", label: "市场IPO上市", lift: 0.38, re: /IPO|上市|挂牌|招股|港股|A股|美股/ },
+  { id: "geopolitics", label: "国际地缘", lift: 0.01, re: /俄乌|以色列|伊朗|朝鲜|北约|中东|台海/ },
 ]
 
-// 亿级金额 — special: match but exclude 万亿 / 百亿+ patterns
-const YI_RE = /\d+(\.\d+)?亿/
-const YI_EXCLUDE_RE = /万亿|[千百]\d*亿|\d{3,}亿/
-
-// ── Penalty factors ────────────────────────────────────────────
-const PENALTIES: { name: string; re: RegExp; penalty: number }[] = [
-  { name: "\"能否\"提问", re: /能否|能不能|会不会|是否/, penalty: -0.57 },
-  { name: "感叹号", re: /[！!]/, penalty: -0.10 },
-  { name: "百亿+金额", re: /[千百]\d*亿|\d{3,}亿|万亿/, penalty: -0.30 },
+// ===== LAYER 2: 主体规模 (Subject Scale) =====
+const SCALE_RULES: { id: string; label: string; lift: number; re: RegExp }[] = [
+  { id: "tier1city", label: "一线城市", lift: 1.87, re: /北京|上海|广州|深圳|香港|澳门/ },
+  { id: "headco", label: "头部企业", lift: 1.29, re: /特斯拉|苹果|华为|小米|腾讯|阿里|百度|京东|美团|拼多多|字节|安踏|波音|丰田|三星|英伟达|台积电|大众|比亚迪|万科|恒大|碧桂园|哪吒|蔚来/ },
+  { id: "celeb", label: "知名人物", lift: 1.14, re: /马斯克|巴菲特|李嘉诚|雷军|宗馥莉|王兴|任正非|马云/ },
+  { id: "nation", label: "国家级主体", lift: 1.06, re: /中国|美国|日本|欧盟|英国|德国|法国|印度|韩国|俄罗斯|澳大利亚/ },
 ]
 
-// 抽象名词钩子 & 钩子长度 are computed dynamically
-
-// ── Self-awareness risks (no score impact) ─────────────────────
-const RISKS: { label: string; svRate: number; re: RegExp }[] = [
-  { label: "技术管制细节", svRate: 0.67, re: /AI芯片.*国产化|芯片.*[禁限管].*使用|技术出口.*限制|稀土.*出口.*许可/ },
-  { label: "自然灾害/伤亡", svRate: 0.56, re: /台风|地震|火灾|洪灾|爆炸|灾害|火山|死亡|遇难|伤亡/ },
-  { label: "疫苗/医药安全", svRate: 0.54, re: /疫苗|仿制药|中药注射|血铅|输液.*死/ },
-  { label: "敏感社会事件", svRate: 0.50, re: /少林|释永信|争议|围堵|讨薪|二选一/ },
-  { label: "加密货币", svRate: 0.44, re: /比特币|加密货币|稳定币|发币/ },
-  { label: "房企暴雷", svRate: 0.41, re: /违约|展期|破产.*重整|资不抵债|被.*带走|留置/ },
-  { label: "政府财政赤字", svRate: 0.40, re: /医保.*赤字|养老金.*赤字|收不抵支/ },
-  { label: "外国领导人", svRate: 0.40, re: /拜登.*癌|石破茂.*辞|马斯克.*党|种族/ },
-  { label: "涉军/冲突", svRate: 0.38, re: /空袭|轰炸|军事|导弹|冲突|俄乌|以色列.*[袭攻]/ },
-  { label: "TikTok/字节", svRate: 0.37, re: /TikTok|字节跳动/ },
-  { label: "中美谈判敏感", svRate: 0.32, re: /对等关税|关税反制|中美.*[转折谈判]/ },
+// ===== LAYER 3: 社交共振 (Social Resonance) =====
+const SOCIAL_RULES: { id: string; label: string; lift: number; re: RegExp }[] = [
+  { id: "conflict", label: "企业冲突反差", lift: 2.49, re: /巨亏|暴雷|倒闭|破产|拖欠|围堵|被查|立案|欠薪|停产|清盘/ },
+  { id: "safety", label: "安全感威胁", lift: 2.21, re: /食品.*安全|午餐.*[问题毒]|污染|造假|欺诈|安全事故/ },
+  { id: "anger", label: "愤怒触发", lift: 1.81, re: /挪用|骗|欺|腐|贪|滥用|违规|侵权|霸|强制/ },
+  { id: "wallet", label: "钱袋子相关", lift: 1.42, re: /失业|裁员|降薪|涨价|缴费|房价|房租|电价|水价|油价|票价|工资|医保|社保|养老|退休/ },
+  { id: "anxiety", label: "焦虑触发", lift: 1.39, re: /失业|裁员|降薪|下滑|收缩|萎缩|危机|困境|困难/ },
 ]
 
-const PREMIUM_SOURCES = new Set(["caixin", "reuters", "bloomberg", "wsj", "ft"])
-const ABSTRACT_NOUN_RE = /战略|重塑|制度|泡沫|趋势|格局/
-const HOOK_SPLIT_RE = /[？?。！!\n]/
+// ===== 自见风险 (Self-Visible Risk) — 融入主评分 =====
+// svRate = 该类话题被设为自见的比例，作为惩罚系数
+const RISK_RULES: { id: string; label: string; svRate: number; re: RegExp }[] = [
+  { id: "r_disaster", label: "自然灾害伤亡", svRate: 64, re: /台风|地震|火灾|洪灾|爆炸|灾害|火山|死亡|遇难|伤亡/ },
+  { id: "r_tech", label: "技术管制细节", svRate: 60, re: /AI芯片.*国产化|芯片.*[禁限管].*使用|技术出口.*限制|稀土.*出口.*许可/ },
+  { id: "r_redebt", label: "房企暴雷债务", svRate: 55, re: /违约|展期|破产.*重整|资不抵债|被.*带走|留置/ },
+  { id: "r_med", label: "疫苗医药安全", svRate: 50, re: /疫苗|仿制药|中药注射|血铅|输液.*死/ },
+  { id: "r_social", label: "敏感社会事件", svRate: 47, re: /少林|释永信|争议|围堵|讨薪|二选一/ },
+  { id: "r_crypto", label: "加密货币", svRate: 44, re: /比特币|加密货币|稳定币|发币/ },
+  { id: "r_mil", label: "涉军冲突", svRate: 39, re: /空袭|轰炸|军事|导弹|冲突|俄乌|以色列.*[袭攻]/ },
+  { id: "r_trade", label: "中美谈判敏感", svRate: 38, re: /对等关税|关税反制|中美.*[转折谈判]/ },
+  { id: "r_tt", label: "TikTok字节", svRate: 35, re: /TikTok|字节跳动/ },
+]
 
-function getHook(title: string): string {
-  const parts = title.split(HOOK_SPLIT_RE)
-  return parts[0] || title
-}
+// 五大权重源
+const PRIORITY_SOURCES = new Set(["caixin", "reuters", "bloomberg", "wsj", "ft"])
 
-function clamp(v: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, v))
-}
-
-function gradeOf(score: number): string {
-  if (score >= 30) return "S"
-  if (score >= 20) return "A"
-  if (score >= 13) return "B"
-  if (score >= 8) return "C"
-  return "D"
-}
-
-export function scoreTitle(
-  title: string,
-  sourceId: string,
-  sourceName: string,
-): ScoredItem {
-  const boosts: string[] = []
-  const penalties: string[] = []
-  const risks: { label: string; svRate: number }[] = []
-
-  let score = 10
-
-  // ── Boosts ───────────────────────────────────────────────────
-  for (const b of BOOSTS) {
-    if (b.re.test(title)) {
-      score *= b.weight
-      boosts.push(b.name)
-    }
-  }
-
-  // 亿级金额 (special handling)
-  if (YI_RE.test(title) && !YI_EXCLUDE_RE.test(title)) {
-    score *= 1.55
-    boosts.push("亿级金额")
-  }
-
-  // ── Penalties ────────────────────────────────────────────────
-  for (const p of PENALTIES) {
-    if (p.re.test(title)) {
-      score *= (1 + p.penalty)
-      penalties.push(p.name)
-    }
-  }
-
-  // 抽象名词钩子
-  const hook = getHook(title)
-  if (ABSTRACT_NOUN_RE.test(hook)) {
-    score *= (1 + (-0.50))
-    penalties.push("抽象名词钩子")
-  }
-
-  // 钩子长度
-  const hookLen = [...hook].length
-  if (hookLen > 25) {
-    score *= (1 + (-0.20))
-    penalties.push("钩子>25字")
-  } else if (hookLen <= 20) {
-    score *= 1.10
-    boosts.push("钩子<=20字")
-  }
-
-  // ── Clamp ────────────────────────────────────────────────────
-  score = clamp(Math.round(score * 100) / 100, 1, 95)
-
-  // ── Risks ────────────────────────────────────────────────────
-  for (const r of RISKS) {
+export function scoreTitle(title: string, sourceId: string, sourceName: string): Omit<ScoredItem, "url" | "pubDate"> {
+  // --- Layer 1: Domain ---
+  const domainHits: string[] = []
+  let domainLift = 1.0
+  for (const r of DOMAIN_RULES) {
     if (r.re.test(title)) {
-      risks.push({ label: r.label, svRate: r.svRate })
+      domainHits.push(r.label)
+      // 取最高的domain lift（不叠加，因为一条新闻通常属于一个主领域）
+      if (r.lift > domainLift) domainLift = r.lift
     }
   }
-  const maxRisk = risks.length > 0 ? Math.max(...risks.map(r => r.svRate)) : 0
 
-  // ── Source weight & final score ──────────────────────────────
-  const sourceWeight = PREMIUM_SOURCES.has(sourceId) ? 1.5 : 1.0
-  const finalScore = Math.round(score * sourceWeight * 100) / 100
+  // --- Layer 2: Scale ---
+  const scaleHits: string[] = []
+  let scaleLift = 1.0
+  for (const r of SCALE_RULES) {
+    if (r.re.test(title)) {
+      scaleHits.push(r.label)
+      // 规模因子可叠加但递减：第二个命中只加50%增量
+      if (scaleLift === 1.0) {
+        scaleLift = r.lift
+      } else {
+        scaleLift *= (1 + (r.lift - 1) * 0.5)
+      }
+    }
+  }
+
+  // --- Layer 3: Social Resonance ---
+  const socialHits: string[] = []
+  let socialLift = 1.0
+  for (const r of SOCIAL_RULES) {
+    if (r.re.test(title)) {
+      socialHits.push(r.label)
+      // 社交因子可叠加但递减
+      if (socialLift === 1.0) {
+        socialLift = r.lift
+      } else {
+        socialLift *= (1 + (r.lift - 1) * 0.5)
+      }
+    }
+  }
+
+  // --- Combo Bonus: 三层同时命中额外加成 ---
+  const layersHit = (domainHits.length > 0 ? 1 : 0) + (scaleHits.length > 0 ? 1 : 0) + (socialHits.length > 0 ? 1 : 0)
+  let comboMultiplier = 1.0
+  if (layersHit === 3) comboMultiplier = 1.3    // 三层叠加：30%加成
+  else if (layersHit === 2) comboMultiplier = 1.1 // 两层叠加：10%加成
+
+  // --- Base Score ---
+  let score = 10.0 * domainLift * scaleLift * socialLift * comboMultiplier
+
+  // --- Self-Visible Risk Penalty (融入主评分) ---
+  const riskHits: { label: string; svRate: number }[] = []
+  let maxSvRate = 0
+  for (const r of RISK_RULES) {
+    if (r.re.test(title)) {
+      riskHits.push({ label: r.label, svRate: r.svRate })
+      if (r.svRate > maxSvRate) maxSvRate = r.svRate
+    }
+  }
+  // 自见惩罚：svRate越高，扣分越重
+  // svRate 50% → score × 0.75 (扣25%)
+  // svRate 60% → score × 0.70 (扣30%)
+  // svRate 35% → score × 0.825 (扣17.5%)
+  const svPenalty = maxSvRate > 0 ? maxSvRate / 200 : 0  // 0~0.35的惩罚系数
+  score = score * (1 - svPenalty)
+
+  // Clamp
+  score = Math.min(Math.max(Math.round(score * 10) / 10, 1), 95)
+
+  // Grade
+  let grade = "D"
+  if (score >= 30) grade = "S"
+  else if (score >= 20) grade = "A"
+  else if (score >= 13) grade = "B"
+  else if (score >= 8) grade = "C"
+
+  // Source weight
+  const sourceWeight = PRIORITY_SOURCES.has(sourceId) ? 1.5 : 1.0
+  const finalScore = Math.round(score * sourceWeight * 10) / 10
 
   return {
     title,
-    url: "",
     source: sourceName,
     sourceId,
     score,
-    grade: gradeOf(score),
-    hookLen,
-    boosts,
-    penalties,
-    risks,
-    maxRisk,
+    grade,
+    domainHits,
+    scaleHits,
+    socialHits,
+    riskHits,
+    svPenalty: Math.round(svPenalty * 100),
     sourceWeight,
     finalScore,
   }
 }
 
-export function scoreAndRank(
-  items: { title: string; url: string; sourceId: string; source: string; pubDate?: string | number }[],
-): ScoredItem[] {
-  return items
-    .map((item) => {
-      const scored = scoreTitle(item.title, item.sourceId, item.source)
-      scored.url = item.url
-      scored.pubDate = item.pubDate
-      return scored
-    })
-    .sort((a, b) => b.finalScore - a.finalScore)
+export function scoreAndRank(items: { title: string; url: string; sourceId: string; sourceName: string; pubDate?: number }[]): ScoredItem[] {
+  const scored = items.map(item => ({
+    ...scoreTitle(item.title, item.sourceId, item.sourceName),
+    url: item.url,
+    pubDate: item.pubDate,
+  }))
+
+  // Deduplicate: same title from different sources, keep highest score
+  const seen = new Map<string, ScoredItem>()
+  for (const s of scored) {
+    const key = s.title.slice(0, 30)
+    const existing = seen.get(key)
+    if (!existing || s.finalScore > existing.finalScore) {
+      seen.set(key, s)
+    }
+  }
+
+  const unique = Array.from(seen.values())
+  unique.sort((a, b) => {
+    if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore
+    return (b.pubDate || 0) - (a.pubDate || 0)
+  })
+
+  return unique
 }

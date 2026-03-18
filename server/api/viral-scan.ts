@@ -1,10 +1,8 @@
-import type { SourceID } from "@shared/types"
-import { getters } from "#/getters"
-import { getCacheTable } from "#/database/cache"
+import process from "node:process"
 import { scoreAndRank } from "../lib/viral-scorer"
 
 // Sources to scan — premium + Chinese finance/business sources
-const SCAN_SOURCES: { id: string; name: string }[] = [
+const SCAN_SOURCES = [
   // Premium 5
   { id: "caixin", name: "财新网" },
   { id: "reuters", name: "路透社" },
@@ -25,52 +23,33 @@ const SCAN_SOURCES: { id: string; name: string }[] = [
   { id: "mktnews-flash", name: "MKTNews-快讯" },
 ]
 
-async function fetchSourceItems(sourceId: string): Promise<{ title: string; url: string; pubDate?: string | number }[]> {
-  const id = sourceId as SourceID
-  // Try cache first
-  const cacheTable = await getCacheTable()
-  if (cacheTable) {
-    const cache = await cacheTable.get(id)
-    if (cache && cache.items?.length) {
-      return cache.items.map(item => ({
-        title: item.title || "",
-        url: item.url || "",
-        pubDate: item.extra?.date,
-      }))
-    }
-  }
-  // Fall back to getter
-  const getter = getters[id]
-  if (!getter) return []
-  try {
-    const items = (await getter()).slice(0, 30)
-    return items.map(item => ({
-      title: item.title || "",
-      url: item.url || "",
-      pubDate: item.extra?.date,
-    }))
-  } catch {
-    return []
-  }
+function getBaseUrl(): string {
+  if (process.env.NUXT_SITE_URL) return process.env.NUXT_SITE_URL
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
+  return "http://localhost:3000"
 }
 
 export default defineEventHandler(async () => {
+  const baseUrl = getBaseUrl()
+
   const results = await Promise.allSettled(
     SCAN_SOURCES.map(async (src) => {
-      const rawItems = await fetchSourceItems(src.id)
-      return rawItems
-        .filter(item => item.title && [...item.title].length >= 6)
+      const url = `${baseUrl}/api/s?id=${encodeURIComponent(src.id)}&latest=true`
+      const res = await $fetch<{ items?: { title?: string; url?: string; extra?: { date?: string | number } }[] }>(url)
+      const items = (res.items || [])
+        .filter(item => item.title && [...(item.title)].length >= 6)
         .map(item => ({
-          title: item.title,
-          url: item.url,
+          title: item.title!,
+          url: item.url || "",
           sourceId: src.id,
-          source: src.name,
-          pubDate: item.pubDate,
+          sourceName: src.name,
+          pubDate: typeof item.extra?.date === "string" ? Date.parse(item.extra.date) || undefined : item.extra?.date,
         }))
+      return items
     }),
   )
 
-  const allItems: { title: string; url: string; sourceId: string; source: string; pubDate?: string | number }[] = []
+  const allItems: { title: string; url: string; sourceId: string; sourceName: string; pubDate?: number }[] = []
   let sourcesScanned = 0
 
   for (const r of results) {
