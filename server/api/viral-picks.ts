@@ -1,13 +1,7 @@
-import { defineEventHandler } from "h3"
-
 export default defineEventHandler(async (event) => {
-  const baseUrl = process.env.NUXT_SITE_URL
-    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
-
   let data: any = { picks: [], totalScanned: 0, sourcesScanned: 0 }
   try {
-    const res = await fetch(`${baseUrl}/api/viral-scan`)
-    if (res.ok) data = await res.json()
+    data = await $fetch("/api/viral-scan")
   } catch {}
 
   const picks = (data.picks || []).slice(0, 15)
