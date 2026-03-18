@@ -1,9 +1,12 @@
 import { defineEventHandler } from "h3"
 
 export default defineEventHandler(async (event) => {
+  const query = getQuery(event)
+  const forceRefresh = query.refresh === "1"
+
   let data: any = { picks: [], totalScanned: 0, sourcesScanned: 0 }
   try {
-    data = await $fetch("/api/viral-scan")
+    data = await $fetch("/api/viral-scan", forceRefresh ? { query: { refresh: "1" } } : {})
   } catch {}
 
   const picks = (data.picks || []).filter((p: any) => p.hoursAgo <= 24 || !p.pubDate)
@@ -94,9 +97,9 @@ export default defineEventHandler(async (event) => {
   <div class="hd">
     <div>
       <h1>选题扫描</h1>
-      <div class="meta">${data.totalScanned} 条新闻 · ${data.sourcesScanned} 源 · 24小时内 · ${now}</div>
+      <div class="meta">${data.totalScanned} 条新闻 · ${data.sourcesScanned} 源 · 24小时内 · ${now}${data.fromCache ? ' · <span style="color:#2563EB">缓存</span>' : ' · <span style="color:#16A34A">实时</span>'}</div>
     </div>
-    <a class="btn" href="/api/viral-picks">刷新</a>
+    <a class="btn" href="/api/viral-picks?refresh=1">强制刷新</a>
   </div>
   <div class="legend">
     <span style="background:#DBEAFE;color:#1E40AF">话题领域</span>
