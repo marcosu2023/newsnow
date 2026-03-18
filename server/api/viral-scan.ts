@@ -29,13 +29,58 @@ function getBaseUrl(): string {
   return "http://localhost:3000"
 }
 
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
+  const query = getQuery(event)
+  const debug = query.debug === "1"
   const baseUrl = getBaseUrl()
+
+  const debugLogs: { id: string; url: string; status: string; bodyPreview: string; itemCount: number }[] = []
 
   const results = await Promise.allSettled(
     SCAN_SOURCES.map(async (src) => {
       const url = `${baseUrl}/api/s?id=${encodeURIComponent(src.id)}&latest=true`
-      const res = await $fetch<{ items?: { title?: string; url?: string; extra?: { date?: string | number } }[] }>(url)
+
+      if (debug) {
+        // Use native fetch for debug to capture raw response details
+        try {
+          const res = await fetch(url)
+          const text = await res.text()
+          let parsed: any = {}
+          try { parsed = JSON.parse(text) } catch {}
+          const items = (parsed.items || [])
+            .filter((item: any) => item.title && [...(item.title)].length >= 6)
+            .map((item: any) => ({
+              title: item.title,
+              url: item.url || "",
+              sourceId: src.id,
+              sourceName: src.name,
+              pubDate: typeof item.pubDate === "string" ? Date.parse(item.pubDate) || undefined
+                : typeof item.pubDate === "number" ? item.pubDate
+                : typeof item.extra?.date === "string" ? Date.parse(item.extra.date) || undefined
+                : item.extra?.date,
+            }))
+          debugLogs.push({
+            id: src.id,
+            url,
+            status: `${res.status} ${res.statusText}`,
+            bodyPreview: text.slice(0, 200),
+            itemCount: items.length,
+          })
+          return items
+        } catch (e: any) {
+          debugLogs.push({
+            id: src.id,
+            url,
+            status: `FETCH_ERROR: ${e.message || e}`,
+            bodyPreview: "",
+            itemCount: 0,
+          })
+          throw e
+        }
+      }
+
+      // Normal mode: use $fetch
+      const res = await $fetch<{ items?: { id?: string | number; title?: string; url?: string; pubDate?: number | string; extra?: { date?: string | number } }[] }>(url)
       const items = (res.items || [])
         .filter(item => item.title && [...(item.title)].length >= 6)
         .map(item => ({
@@ -43,7 +88,10 @@ export default defineEventHandler(async () => {
           url: item.url || "",
           sourceId: src.id,
           sourceName: src.name,
-          pubDate: typeof item.extra?.date === "string" ? Date.parse(item.extra.date) || undefined : item.extra?.date,
+          pubDate: typeof item.pubDate === "string" ? Date.parse(item.pubDate) || undefined
+            : typeof item.pubDate === "number" ? item.pubDate
+            : typeof item.extra?.date === "string" ? Date.parse(item.extra.date) || undefined
+            : item.extra?.date,
         }))
       return items
     }),
@@ -56,6 +104,27 @@ export default defineEventHandler(async () => {
     if (r.status === "fulfilled" && r.value.length > 0) {
       allItems.push(...r.value)
       sourcesScanned++
+    }
+  }
+
+  if (debug) {
+    const rejectedSources = results
+      .map((r, i) => r.status === "rejected" ? { id: SCAN_SOURCES[i].id, error: String(r.reason).slice(0, 200) } : null)
+      .filter(Boolean)
+
+    return {
+      _debug: true,
+      baseUrl,
+      env: {
+        NUXT_SITE_URL: process.env.NUXT_SITE_URL || "(not set)",
+        VERCEL_URL: process.env.VERCEL_URL || "(not set)",
+      },
+      totalSources: SCAN_SOURCES.length,
+      sourcesScanned,
+      totalItems: allItems.length,
+      rejectedCount: rejectedSources.length,
+      rejectedSources,
+      sourceLogs: debugLogs,
     }
   }
 
