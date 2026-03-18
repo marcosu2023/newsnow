@@ -67,6 +67,7 @@ const CHINA_RE = /中国|中资|中企|国内|境内|内地|A股|沪指|深指|�
 const RISK_RULES: { id: string; label: string; svRate: number; re: RegExp }[] = [
   { id: "r_disaster", label: "自然灾害伤亡", svRate: 64, re: /台风|地震|火灾|洪灾|爆炸|灾害|火山|死亡|遇难|伤亡/ },
   { id: "r_tech", label: "技术管制细节", svRate: 60, re: /AI芯片.*国产化|芯片.*[禁限管].*使用|技术出口.*限制|稀土.*出口.*许可/ },
+  { id: "r_chipwar", label: "芯片战争敏感", svRate: 50, re: /英伟达|NVIDIA|[Nn]vidia|芯片.*中国|中国.*芯片|对华.*芯片|芯片.*制裁|芯片.*禁|禁.*芯片|H100|H800|A100|B200|光刻机|ASML/ },
   { id: "r_redebt", label: "房企暴雷债务", svRate: 55, re: /违约|展期|破产.*重整|资不抵债|被.*带走|留置/ },
   { id: "r_med", label: "疫苗医药安全", svRate: 50, re: /疫苗|仿制药|中药注射|血铅|输液.*死/ },
   { id: "r_social", label: "敏感社会事件", svRate: 47, re: /少林|释永信|争议|围堵|讨薪|二选一/ },
