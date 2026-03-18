@@ -1,4 +1,5 @@
 import { scoreAndRank } from "../lib/viral-scorer"
+import { shouldRefresh, getCachedPicks, savePicks, isRedisConfigured } from "../lib/redis-cache"
 
 // Sources to scan — premium + Chinese finance/business sources
 const SCAN_SOURCES = [
@@ -22,10 +23,7 @@ const SCAN_SOURCES = [
   { id: "mktnews-flash", name: "MKTNews-快讯" },
 ]
 
-export default defineEventHandler(async (event) => {
-  const query = getQuery(event)
-  const debug = query.debug === "1"
-
+async function fetchAllSources(debug: boolean) {
   const debugLogs: { id: string; status: string; itemCount: number; error?: string }[] = []
 
   const results = await Promise.allSettled(
@@ -69,6 +67,40 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  return { allItems, sourcesScanned, debugLogs, results }
+}
+
+export default defineEventHandler(async (event) => {
+  const query = getQuery(event)
+  const debug = query.debug === "1"
+  const forceRefresh = query.refresh === "1"
+
+  const redisOk = isRedisConfigured()
+
+  // --- Try cached response first ---
+  if (redisOk && !forceRefresh && !debug) {
+    try {
+      const needRefresh = await shouldRefresh()
+      if (!needRefresh) {
+        const cached = await getCachedPicks()
+        if (cached && cached.length > 0) {
+          return {
+            timestamp: new Date().toISOString(),
+            totalScanned: cached.length,
+            sourcesScanned: 0,
+            fromCache: true,
+            picks: cached,
+          }
+        }
+      }
+    } catch {
+      // Redis error → fall through to live scan
+    }
+  }
+
+  // --- Live scan ---
+  const { allItems, sourcesScanned, debugLogs, results } = await fetchAllSources(debug)
+
   if (debug) {
     const rejectedSources = results
       .map((r, i) => r.status === "rejected" ? { id: SCAN_SOURCES[i].id, error: String(r.reason).slice(0, 200) } : null)
@@ -76,6 +108,7 @@ export default defineEventHandler(async (event) => {
 
     return {
       _debug: true,
+      redisConfigured: redisOk,
       totalSources: SCAN_SOURCES.length,
       sourcesScanned,
       totalItems: allItems.length,
@@ -86,12 +119,35 @@ export default defineEventHandler(async (event) => {
   }
 
   const ranked = scoreAndRank(allItems)
-  const picks = ranked.slice(0, 20)
+  const picks = ranked.slice(0, 50) // keep more for 24h accumulation
+
+  // --- Save to Redis (merge with existing) ---
+  if (redisOk && picks.length > 0) {
+    try {
+      await savePicks(picks)
+    } catch {
+      // Redis save failed → continue with live data
+    }
+  }
+
+  // --- Return merged data if Redis available ---
+  let finalPicks = picks
+  if (redisOk) {
+    try {
+      const merged = await getCachedPicks()
+      if (merged && merged.length > 0) {
+        finalPicks = merged
+      }
+    } catch {
+      // fallback to live picks
+    }
+  }
 
   return {
     timestamp: new Date().toISOString(),
     totalScanned: allItems.length,
     sourcesScanned,
-    picks,
+    fromCache: false,
+    picks: finalPicks.slice(0, 50),
   }
 })
