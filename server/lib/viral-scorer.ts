@@ -9,6 +9,7 @@ export interface ScoredItem {
   pubDate?: number
   score: number
   grade: string
+  mechanism: "裂变" | "争议" | "涨粉" | "流量"
   domainHits: string[]
   scaleHits: string[]
   socialHits: string[]
@@ -77,6 +78,11 @@ const RISK_RULES: { id: string; label: string; svRate: number; re: RegExp }[] = 
   { id: "r_tt", label: "TikTok字节", svRate: 35, re: /TikTok|字节跳动/ },
 ]
 
+// ===== 爆法类型 (Mechanism) =====
+const MECH_FISSION_RE = /失业|裁员|降薪|医保|社保|养老|缴费|涨价|房价|电价|工资|房租|退休|午餐|食品.*安全|破产|欠薪|拖欠|暴雷|违约|倒闭|停产|清盘|挪用/
+const MECH_DEBATE_RE = /对华|对美|中美|关税|制裁|贸易战|出口管制|芯片|半导体|AI|稀土|国产替代|撼动|挑战/
+const MECH_FOLLOW_RE = /收购|并购|出售|私有化|易主|罕见|首次|披露|独家|内幕|揭秘/
+
 const PRIORITY_SOURCES = new Set(["caixin", "reuters", "bloomberg", "wsj", "ft"])
 
 export function scoreTitle(title: string, sourceId: string, sourceName: string, pubDate?: number): Omit<ScoredItem, "url"> {
@@ -138,13 +144,22 @@ export function scoreTitle(title: string, sourceId: string, sourceName: string, 
   else if (score >= 13) grade = "B"
   else if (score >= 8) grade = "C"
 
+  // --- Mechanism ---
+  const isFission = MECH_FISSION_RE.test(title)
+  const isDebate = MECH_DEBATE_RE.test(title)
+  const isFollow = MECH_FOLLOW_RE.test(title)
+  let mechanism: "裂变" | "争议" | "涨粉" | "流量" = "流量"
+  if (isFission) mechanism = "裂变"
+  else if (isDebate) mechanism = "争议"
+  else if (isFollow) mechanism = "涨粉"
+
   const sourceWeight = PRIORITY_SOURCES.has(sourceId) ? 1.5 : 1.0
   const now = Date.now()
   const hoursAgo = pubDate ? Math.max(0, Math.round((now - pubDate) / 3600000 * 10) / 10) : 0
   const finalScore = Math.round(score * sourceWeight * 10) / 10
 
   return {
-    title, source: sourceName, sourceId, pubDate, score, grade,
+    title, source: sourceName, sourceId, pubDate, score, grade, mechanism,
     domainHits, scaleHits, socialHits, riskHits,
     svPenalty: Math.round(svPenalty * 100),
     chinaBoost, sourceWeight, hoursAgo, finalScore,
