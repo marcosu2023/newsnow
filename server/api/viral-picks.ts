@@ -32,10 +32,23 @@ export default defineEventHandler(async (event) => {
     return [...primary, ...rest]
   }
 
-  // Sections
-  const morningPicks = mechFirst(picks, "争议").slice(0, 8)
-  const afternoonPicks = mechFirst(picks, "裂变").slice(0, 8)
-  const followPicks = picks.filter((p: any) => p.mechanism === "涨粉").slice(0, 5)
+  // Sections — each item appears only once across all sections
+  const used = new Set<string>()
+  function takeUnique(items: any[], limit: number) {
+    const result: any[] = []
+    for (const p of items) {
+      const key = (p.title || "").slice(0, 30)
+      if (used.has(key)) continue
+      used.add(key)
+      result.push(p)
+      if (result.length >= limit) break
+    }
+    return result
+  }
+
+  const morningPicks = takeUnique(mechFirst(picks, "争议"), 8)
+  const afternoonPicks = takeUnique(mechFirst(picks, "裂变"), 8)
+  const followPicks = takeUnique(picks.filter((p: any) => p.mechanism === "涨粉"), 5)
 
   function timeLabel(h: number): string {
     if (!h) return ""
