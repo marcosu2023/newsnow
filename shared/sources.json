@@ -576,7 +576,7 @@
     "name": "路透社",
     "type": "realtime",
     "column": "world",
-    "home": "https://www.reuters.com",
+    "home": "https://www.reuters.com/world/china/",
     "color": "orange",
     "interval": 600000
   },

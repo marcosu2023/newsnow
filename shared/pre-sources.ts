@@ -495,7 +495,7 @@ export const originSources = {
     type: "realtime",
     column: "world",
     color: "orange",
-    home: "https://www.reuters.com",
+    home: "https://www.reuters.com/world/china/",
   },
   "bloomberg": {
     name: "彭博社",
