@@ -156,7 +156,11 @@ export function scoreTitle(title: string, sourceId: string, sourceName: string, 
   const sourceWeight = PRIORITY_SOURCES.has(sourceId) ? 1.5 : 1.0
   const now = Date.now()
   const hoursAgo = pubDate ? Math.max(0, Math.round((now - pubDate) / 3600000 * 10) / 10) : 0
-  const finalScore = Math.round(score * sourceWeight * 10) / 10
+
+  // Time decay: fresh news gets a boost, old news decays
+  // 0h → 1.0x, 3h → 0.85x, 6h → 0.72x, 12h → 0.52x, 24h → 0.27x
+  const decayFactor = pubDate ? Math.exp(-0.055 * hoursAgo) : 0.7 // no pubDate → treat as ~6h old
+  const finalScore = Math.round(score * sourceWeight * decayFactor * 10) / 10
 
   return {
     title, source: sourceName, sourceId, pubDate, score, grade, mechanism,

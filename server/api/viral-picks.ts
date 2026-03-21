@@ -7,7 +7,13 @@ export default defineEventHandler(async (event) => {
     data = await $fetch("/api/viral-scan", forceRefresh ? { query: { refresh: "1" } } : {})
   } catch {}
 
-  const picks = (data.picks || []).filter((p: any) => p.hoursAgo <= 24 || !p.pubDate)
+  // Score-based time filter: higher scores stay visible longer
+  const picks = (data.picks || []).filter((p: any) => {
+    const fs = p.finalScore || 0
+    const maxHours = fs >= 30 ? 24 : fs >= 20 ? 18 : fs >= 13 ? 12 : fs >= 8 ? 6 : 3
+    if (!p.hoursAgo && !p.pubDate) return fs >= 8
+    return p.hoursAgo <= maxHours
+  })
 
   // Mechanism config
   const mechConfig: Record<string, { emoji: string; color: string; bg: string; label: string }> = {

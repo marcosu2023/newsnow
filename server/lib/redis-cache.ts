@@ -3,7 +3,7 @@
 
 const CACHE_KEY = "viral:picks"
 const SCAN_TS_KEY = "viral:lastScan"
-const SCAN_INTERVAL_MS = 2 * 60 * 60 * 1000 // 2 hours
+const SCAN_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes — pick up fresh news faster
 const TTL_SECONDS = 25 * 60 * 60 // 25 hours (buffer over 24h display window)
 
 function getEnv() {
@@ -75,15 +75,23 @@ export async function savePicks(newPicks: any[]): Promise<void> {
     }
   }
 
-  // Filter: keep only items within 24h (based on pubDate or scanTime)
+  // Score-based retention: high-scoring news lives longer, low-scoring gets culled
+  // Grade S (≥30): keep 24h, Grade A (≥20): keep 18h, Grade B (≥13): keep 12h
+  // Grade C (≥8): keep 6h, Grade D (<8): keep 3h
   const now = Date.now()
-  const cutoff = now - 24 * 60 * 60 * 1000
   const filtered = Array.from(merged.values()).filter((p) => {
-    if (p.pubDate && p.pubDate > cutoff) return true
-    if (p._scanTime && p._scanTime > cutoff) return true
-    // No time info → keep if it was just scanned
-    if (!p.pubDate && !p._scanTime) return true
-    return false
+    const fs = p.finalScore || 0
+    let maxAge: number
+    if (fs >= 30) maxAge = 24 * 60 * 60 * 1000
+    else if (fs >= 20) maxAge = 18 * 60 * 60 * 1000
+    else if (fs >= 13) maxAge = 12 * 60 * 60 * 1000
+    else if (fs >= 8) maxAge = 6 * 60 * 60 * 1000
+    else maxAge = 3 * 60 * 60 * 1000
+
+    const itemTime = p.pubDate || p._scanTime
+    if (itemTime) return (now - itemTime) < maxAge
+    // No time info → only keep if score is decent (≥8)
+    return fs >= 8
   })
 
   // Sort by finalScore
