@@ -71,6 +71,7 @@ export default defineEventHandler(async (event) => {
     for (const d of (p.domainHits || [])) tags.push(`<span style="padding:1px 6px;border-radius:10px;font-size:10px;background:#DBEAFE;color:#1E40AF">${d}</span>`)
     for (const s of (p.scaleHits || [])) tags.push(`<span style="padding:1px 6px;border-radius:10px;font-size:10px;background:#D1FAE5;color:#065F46">${s}</span>`)
     for (const s of (p.socialHits || [])) tags.push(`<span style="padding:1px 6px;border-radius:10px;font-size:10px;background:#FEF3C7;color:#92400E">${s}</span>`)
+    for (const n of (p.narrativeHits || [])) tags.push(`<span style="padding:1px 6px;border-radius:10px;font-size:10px;background:#F3E8FF;color:#7C3AED">${n}</span>`)
 
     const chinaBadge = p.chinaBoost ? `<span style="padding:1px 6px;border-radius:10px;font-size:10px;background:#FEE2E2;color:#991B1B">中国+25%</span>` : ""
     const srcBadge = p.sourceWeight > 1 ? `<span style="padding:1px 5px;border-radius:4px;font-size:9px;background:#DBEAFE;color:#1E40AF">优先源</span>` : ""
@@ -150,7 +151,7 @@ export default defineEventHandler(async (event) => {
 <body>
   <div class="hd">
     <div>
-      <h1>选题扫描</h1>
+      <h1>选题扫描 <span style="font-size:12px;font-weight:400;color:#9ca3af">v4.0</span></h1>
       <div class="meta">${data.totalScanned} 条新闻 · ${data.sourcesScanned} 源 · 8小时内 · ${now} · ${cacheLabel}</div>
     </div>
     <a class="btn" href="/api/viral-picks?refresh=1">强制刷新</a>
@@ -164,6 +165,7 @@ export default defineEventHandler(async (event) => {
     <span style="background:#D1FAE5;color:#065F46">主体规模</span>
     <span style="background:#FEF3C7;color:#92400E">社交共振</span>
     <span style="background:#FEE2E2;color:#991B1B">中国贴近</span>
+    <span style="background:#F3E8FF;color:#7C3AED">叙事框架</span>
     <span style="background:#F3F4F6;color:#6B7280">五大源 1.5x</span>
   </div>
   <div class="divider"></div>
@@ -173,7 +175,15 @@ export default defineEventHandler(async (event) => {
   </div>
   <div class="divider"></div>
   ${sectionHtml("更多选题", "以上未收录的近8小时选题", remainingPicks, "#6B7280", true)}
-  <div class="ft">选题评分模型 · 话题领域×主体规模×社交共振×中国贴近性 · 自见风险融入评分 · 爆法分类</div>
+  <div class="ft">
+    选题评分模型 · 话题领域×主体规模×社交共振×叙事框架×中国贴近性 · 自见风险融入评分 · 爆法分类
+    <div style="margin-top:12px;text-align:left;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.8">
+      <div style="font-weight:600;margin-bottom:4px;color:#6b7280">更新日志</div>
+      <div>v4.0 · 2026-03-23 · 新增叙事框架层（巨头新动作/政策转向/数据发布/预期反差/跨界竞争/供应链冲击/高层人事/监管出手/资本信号/行业里程碑）；左右双栏布局；展示容量扩至15+15+20</div>
+      <div>v3.5 · 2026-03-23 · 多源聚合去重+独家标记；修复RSS假时间；缓存hoursAgo实时重算；8小时留存上限</div>
+      <div>v3.0 · 2026-03-22 · v3权重（1213条短视频因子分析）；时间衰减评分；分级留存策略</div>
+    </div>
+  </div>
 </body>
 </html>`
 

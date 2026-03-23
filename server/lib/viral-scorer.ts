@@ -1,5 +1,5 @@
-// 选题评分模型 — 三层选题因子 + 中国贴近性 + 自见风险 + 时间衰减
-// 基于1213条短视频（991公开+220自见）的因子分析 — v3 weights
+// 选题评分模型 — 四层选题因子 + 中国贴近性 + 自见风险 + 时间衰减
+// 基于1213条短视频（991公开+220自见）的因子分析 — v4 weights
 
 export interface ScoredItem {
   title: string
@@ -13,6 +13,7 @@ export interface ScoredItem {
   domainHits: string[]
   scaleHits: string[]
   socialHits: string[]
+  narrativeHits: string[]
   riskHits: { label: string; svRate: number }[]
   svPenalty: number
   chinaBoost: boolean
@@ -59,6 +60,41 @@ const SOCIAL_RULES: { id: string; label: string; lift: number; re: RegExp }[] = 
   { id: "anger", label: "愤怒触发", lift: 1.59, re: /挪用|骗|欺|腐|贪|滥用|违规|侵权|霸|强制/ },
   { id: "anxiety", label: "焦虑触发", lift: 1.32, re: /失业|裁员|降薪|下滑|收缩|萎缩|危机|困境|困难/ },
   { id: "wallet", label: "钱袋子相关", lift: 1.24, re: /失业|裁员|降薪|涨价|缴费|房价|房租|电价|水价|油价|票价|工资|医保|社保|养老|退休/ },
+]
+
+// ===== LAYER 4: 叙事框架 (Narrative Framework) =====
+// 主体 × 动作/信号 组合匹配，识别标题背后的话题势能
+const NARRATIVE_RULES: { id: string; label: string; lift: number; subject: RegExp; signal: RegExp }[] = [
+  { id: "bigmove", label: "巨头新动作", lift: 1.45,
+    subject: /特斯拉|苹果|华为|小米|腾讯|阿里|百度|京东|美团|拼多多|字节|英伟达|台积电|比亚迪|宁德时代|中芯|大疆|三星|丰田|波音|蔚来|小鹏|理想|哪吒|安踏|马斯克|雷军|任正非|马云|李嘉诚|巴菲特|王兴/,
+    signal: /发布|推出|宣布|上线|进军|退出|暂停|终止|启动|战略|转型|入局|首次|开放|关闭|裁撤|成立|解散/ },
+  { id: "policyshift", label: "政策转向", lift: 1.55,
+    subject: /央行|美联储|日本银行|日银|欧央行|国务院|发改委|财政部|证监会|银保监|工信部|商务部|住建部|人社部|税务|海关|市场监管/,
+    signal: /降息|加息|维持|暂停|调整|放宽|收紧|取消|新规|叫停|试点|扩大|缩减|延长|出台|审批|窗口指导/ },
+  { id: "datadrop", label: "数据发布", lift: 1.40,
+    subject: /GDP|CPI|PPI|PMI|就业|失业率|出口|进口|贸易|社融|M2|信贷|外储|外汇储备|财政收入|工业增加值|零售/,
+    signal: /超预期|低于预期|不及预期|创新[高低]|上升|下降|回升|回落|增长|收缩|转正|转负|公布|数据|同比|环比/ },
+  { id: "surprise", label: "预期反差", lift: 1.50,
+    subject: /[\u4e00-\u9fff]{2,}/,
+    signal: /意外|出乎意料|罕见|突然|超预期|不及预期|史上首次|打破|逆转|反转|急转|戏剧|震惊|始料未及/ },
+  { id: "crossover", label: "跨界竞争", lift: 1.40,
+    subject: /特斯拉|苹果|华为|小米|腾讯|阿里|百度|京东|美团|拼多多|字节|比亚迪|宁德时代|大疆|三星|英伟达/,
+    signal: /进军|跨界|入局|造车|做芯片|做手机|做AI|做机器人|自研|下场|布局.*新|切入/ },
+  { id: "supplyshock", label: "供应链冲击", lift: 1.45,
+    subject: /芯片|半导体|电池|稀土|锂|石油|天然气|粮食|钢铁|铜|铝|面板|光伏|储能|汽车|手机|晶圆/,
+    signal: /停供|断供|短缺|紧缺|产能|库存|交期|供应|涨价|限[产售出]|禁[运售出]|囤|抢购/ },
+  { id: "leadership", label: "高层人事", lift: 1.35,
+    subject: /CEO|董事长|总裁|总经理|行长|部长|省长|市长|主席|创始人|掌门|一把手/,
+    signal: /辞职|离职|卸任|接任|任命|换帅|上任|退休|被免|空降|继任|交棒/ },
+  { id: "regaction", label: "监管出手", lift: 1.50,
+    subject: /证监会|银保监|市场监管|反垄断|网信办|税务|审计|纪委|监委|法院|检察/,
+    signal: /罚款|处罚|约谈|立案|调查|警告|责令|吊销|查处|通报|整改|开出.*罚单/ },
+  { id: "capsignal", label: "资本信号", lift: 1.30,
+    subject: /[\u4e00-\u9fff]{2,}/,
+    signal: /减持|增持|回购|举牌|清仓|大宗交易|质押|解禁|定增|配股|分红|派息|市值蒸发|市值突破/ },
+  { id: "milestone", label: "行业里程碑", lift: 1.40,
+    subject: /[\u4e00-\u9fff]{2,}/,
+    signal: /首次|首个|第一|突破|里程碑|创纪录|历史性|史上最|最大规模|零的突破|从0到1|全球首/ },
 ]
 
 // ===== 中国贴近性 (China Proximity) =====
@@ -116,15 +152,25 @@ export function scoreTitle(title: string, sourceId: string, sourceName: string, 
     }
   }
 
-  const layersHit = (domainHits.length > 0 ? 1 : 0) + (scaleHits.length > 0 ? 1 : 0) + (socialHits.length > 0 ? 1 : 0)
+  const narrativeHits: string[] = []
+  let narrativeLift = 1.0
+  for (const r of NARRATIVE_RULES) {
+    if (r.subject.test(title) && r.signal.test(title)) {
+      narrativeHits.push(r.label)
+      if (r.lift > narrativeLift) narrativeLift = r.lift
+    }
+  }
+
+  const layersHit = (domainHits.length > 0 ? 1 : 0) + (scaleHits.length > 0 ? 1 : 0) + (socialHits.length > 0 ? 1 : 0) + (narrativeHits.length > 0 ? 1 : 0)
   let comboMultiplier = 1.0
-  if (layersHit === 3) comboMultiplier = 1.3
+  if (layersHit >= 4) comboMultiplier = 1.4
+  else if (layersHit === 3) comboMultiplier = 1.3
   else if (layersHit === 2) comboMultiplier = 1.1
 
   const chinaBoost = CHINA_RE.test(title)
   const chinaMultiplier = chinaBoost ? 1.25 : 1.0
 
-  let score = 10.0 * domainLift * scaleLift * socialLift * comboMultiplier * chinaMultiplier
+  let score = 10.0 * domainLift * scaleLift * socialLift * narrativeLift * comboMultiplier * chinaMultiplier
 
   const riskHits: { label: string; svRate: number }[] = []
   let maxSvRate = 0
@@ -165,7 +211,7 @@ export function scoreTitle(title: string, sourceId: string, sourceName: string, 
 
   return {
     title, source: sourceName, sourceId, pubDate, score, grade, mechanism,
-    domainHits, scaleHits, socialHits, riskHits,
+    domainHits, scaleHits, socialHits, narrativeHits, riskHits,
     svPenalty: Math.round(svPenalty * 100),
     chinaBoost, sourceWeight, hoursAgo, finalScore,
   }
