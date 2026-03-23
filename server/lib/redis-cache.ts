@@ -48,7 +48,15 @@ export async function getCachedPicks(): Promise<any[] | null> {
   if (!raw) return null
 
   try {
-    return JSON.parse(raw)
+    const items = JSON.parse(raw)
+    // Recompute hoursAgo from pubDate so cached items show correct relative time
+    const now = Date.now()
+    for (const p of items) {
+      if (p.pubDate) {
+        p.hoursAgo = Math.max(0, Math.round((now - p.pubDate) / 3600000 * 10) / 10)
+      }
+    }
+    return items
   } catch {
     return null
   }
@@ -72,6 +80,11 @@ export async function savePicks(newPicks: any[]): Promise<void> {
     const old = merged.get(key)
     if (!old || (p.finalScore || 0) > (old.finalScore || 0)) {
       merged.set(key, p)
+    } else if (old) {
+      // Always update aggregation fields from fresh scan data
+      if (p.hotLevel !== undefined) old.hotLevel = p.hotLevel
+      if (p.sourceCount !== undefined) old.sourceCount = p.sourceCount
+      if (p.isExclusive !== undefined) old.isExclusive = p.isExclusive
     }
   }
 
