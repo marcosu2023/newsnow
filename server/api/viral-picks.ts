@@ -50,7 +50,16 @@ export default defineEventHandler(async (event) => {
   const afternoonPicks = takeUnique(mechFirst(picks, "裂变"), 8)
   const followPicks = takeUnique(picks.filter((p: any) => p.mechanism === "涨粉"), 5)
 
-  function timeLabel(h: number): string {
+  const fetchedAt = data.fetchedAt || Date.now()
+
+  function timeLabel(p: any): string {
+    const h = p.hoursAgo
+    if (!h && !p.pubDate) return ""
+    // If pubDate is within 30 min of fetch time, it's likely a fake time from RSS feed
+    if (p.pubDate && fetchedAt) {
+      const diffMin = Math.abs(fetchedAt - p.pubDate) / 60000
+      if (diffMin < 30) return "" // fake time — suppress display
+    }
     if (!h) return ""
     if (h < 1) return Math.round(h * 60) + "分钟前"
     if (h < 24) return Math.round(h) + "小时前"
@@ -67,7 +76,7 @@ export default defineEventHandler(async (event) => {
 
     const chinaBadge = p.chinaBoost ? `<span style="padding:1px 6px;border-radius:10px;font-size:10px;background:#FEE2E2;color:#991B1B">中国+25%</span>` : ""
     const srcBadge = p.sourceWeight > 1 ? `<span style="padding:1px 5px;border-radius:4px;font-size:9px;background:#DBEAFE;color:#1E40AF">优先源</span>` : ""
-    const time = timeLabel(p.hoursAgo)
+    const time = timeLabel(p)
 
     const hotBadge = p.hotLevel >= 2
       ? '<span style="background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:10px;font-size:11px;margin-left:6px">🔥🔥 多源热点</span>'

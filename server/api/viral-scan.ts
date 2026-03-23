@@ -145,6 +145,7 @@ export default defineEventHandler(async (event) => {
         if (cached && cached.length > 0) {
           return {
             timestamp: new Date().toISOString(),
+            fetchedAt: Date.now(),
             totalScanned: cached.length,
             sourcesScanned: 0,
             fromCache: true,
@@ -205,6 +206,7 @@ export default defineEventHandler(async (event) => {
 
   return {
     timestamp: new Date().toISOString(),
+    fetchedAt: Date.now(),
     totalScanned: allItems.length,
     sourcesScanned,
     fromCache: false,
