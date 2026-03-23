@@ -44,9 +44,9 @@ export default defineEventHandler(async (event) => {
     return result
   }
 
-  const morningPicks = takeUnique(mechFirst(picks, "争议"), 8)
-  const afternoonPicks = takeUnique(mechFirst(picks, "裂变"), 8)
-  const followPicks = takeUnique(picks.filter((p: any) => p.mechanism === "涨粉"), 5)
+  const morningPicks = takeUnique(mechFirst(picks, "争议"), 15)
+  const afternoonPicks = takeUnique(mechFirst(picks, "裂变"), 15)
+  const remainingPicks = takeUnique(picks, 20)
 
   const fetchedAt = data.fetchedAt || Date.now()
 
@@ -133,7 +133,7 @@ export default defineEventHandler(async (event) => {
   <title>选题扫描</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f9fafb;color:#111;padding:16px;max-width:800px;margin:0 auto}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f9fafb;color:#111;padding:16px;max-width:1200px;margin:0 auto}
     .hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
     h1{font-size:18px;font-weight:600}
     .meta{font-size:12px;color:#6b7280;margin-top:2px}
@@ -143,13 +143,15 @@ export default defineEventHandler(async (event) => {
     .legend span{padding:2px 8px;border-radius:10px}
     .divider{height:1px;background:#e5e7eb;margin:16px 0}
     .ft{font-size:10px;color:#9ca3af;text-align:center;padding:16px}
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+    @media(max-width:768px){.two-col{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
   <div class="hd">
     <div>
       <h1>选题扫描</h1>
-      <div class="meta">${data.totalScanned} 条新闻 · ${data.sourcesScanned} 源 · 24小时内 · ${now} · ${cacheLabel}</div>
+      <div class="meta">${data.totalScanned} 条新闻 · ${data.sourcesScanned} 源 · 8小时内 · ${now} · ${cacheLabel}</div>
     </div>
     <a class="btn" href="/api/viral-picks?refresh=1">强制刷新</a>
   </div>
@@ -165,11 +167,12 @@ export default defineEventHandler(async (event) => {
     <span style="background:#F3F4F6;color:#6B7280">五大源 1.5x</span>
   </div>
   <div class="divider"></div>
-  ${sectionHtml("上午档 · 建议 8:00–11:00 发布", "争议型选题在此时段爆款率最高", morningPicks, "#2563EB")}
+  <div class="two-col">
+    <div>${sectionHtml("上午档 · 建议 8:00–11:00 发布", "争议型选题在此时段爆款率最高", morningPicks, "#2563EB")}</div>
+    <div>${sectionHtml("下午档 · 建议 15:00–17:00 发布", "裂变型选题在此时段爆款率最高（15.8%）", afternoonPicks, "#DC2626")}</div>
+  </div>
   <div class="divider"></div>
-  ${sectionHtml("下午档 · 建议 15:00–17:00 发布", "裂变型选题在此时段爆款率最高（15.8%）", afternoonPicks, "#DC2626")}
-  <div class="divider"></div>
-  ${sectionHtml("涨粉潜力 · 适合任意时段", "信息差驱动涨粉，建议深度解读后发布", followPicks, "#059669", true)}
+  ${sectionHtml("更多选题", "以上未收录的近8小时选题", remainingPicks, "#6B7280", true)}
   <div class="ft">选题评分模型 · 话题领域×主体规模×社交共振×中国贴近性 · 自见风险融入评分 · 爆法分类</div>
 </body>
 </html>`
