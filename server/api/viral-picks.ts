@@ -7,12 +7,10 @@ export default defineEventHandler(async (event) => {
     data = await $fetch("/api/viral-scan", forceRefresh ? { query: { refresh: "1" } } : {})
   } catch {}
 
-  // Score-based time filter: higher scores stay visible longer
+  // Hard cap: only show news from the last 8 hours
   const picks = (data.picks || []).filter((p: any) => {
-    const fs = p.finalScore || 0
-    const maxHours = fs >= 30 ? 24 : fs >= 20 ? 18 : fs >= 13 ? 12 : fs >= 8 ? 6 : 3
-    if (!p.hoursAgo && !p.pubDate) return fs >= 8
-    return p.hoursAgo <= maxHours
+    if (!p.hoursAgo && !p.pubDate) return (p.finalScore || 0) >= 8
+    return (p.hoursAgo || 0) <= 8
   })
 
   // Mechanism config

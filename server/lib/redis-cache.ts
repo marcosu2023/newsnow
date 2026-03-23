@@ -88,23 +88,15 @@ export async function savePicks(newPicks: any[]): Promise<void> {
     }
   }
 
-  // Score-based retention: high-scoring news lives longer, low-scoring gets culled
-  // Grade S (≥30): keep 24h, Grade A (≥20): keep 18h, Grade B (≥13): keep 12h
-  // Grade C (≥8): keep 6h, Grade D (<8): keep 3h
+  // Hard cap: discard anything older than 8 hours regardless of score
+  const MAX_AGE_MS = 8 * 60 * 60 * 1000
   const now = Date.now()
   const filtered = Array.from(merged.values()).filter((p) => {
-    const fs = p.finalScore || 0
-    let maxAge: number
-    if (fs >= 30) maxAge = 24 * 60 * 60 * 1000
-    else if (fs >= 20) maxAge = 18 * 60 * 60 * 1000
-    else if (fs >= 13) maxAge = 12 * 60 * 60 * 1000
-    else if (fs >= 8) maxAge = 6 * 60 * 60 * 1000
-    else maxAge = 3 * 60 * 60 * 1000
 
     const itemTime = p.pubDate || p._scanTime
-    if (itemTime) return (now - itemTime) < maxAge
+    if (itemTime) return (now - itemTime) < MAX_AGE_MS
     // No time info → only keep if score is decent (≥8)
-    return fs >= 8
+    return (p.finalScore || 0) >= 8
   })
 
   // Sort by finalScore
