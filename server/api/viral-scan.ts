@@ -1,5 +1,64 @@
-import { scoreAndRank } from "../lib/viral-scorer"
+import { scoreAndRank, type ScoredItem } from "../lib/viral-scorer"
 import { shouldRefresh, getCachedPicks, savePicks, isRedisConfigured } from "../lib/redis-cache"
+
+// --- Multi-source aggregation types & helpers ---
+interface EnrichedItem extends ScoredItem {
+  hotLevel: number      // 0=普通, 1=🔥(2源), 2=🔥🔥(3源+)
+  sourceCount: number   // 报道该事件的源数量
+  isExclusive: boolean  // 是否为五大源独家
+}
+
+function getGroupKey(title: string): string {
+  return title.replace(/\s+/g, "").slice(0, 20)
+}
+
+const PRIORITY_SOURCES = new Set(["caixin", "reuters", "bloomberg", "wsj", "ft"])
+
+function aggregateAndDedup(scoredItems: ScoredItem[]): EnrichedItem[] {
+  const groups = new Map<string, { sources: Set<string>; items: EnrichedItem[] }>()
+
+  for (const item of scoredItems) {
+    const key = getGroupKey(item.title)
+    if (!groups.has(key)) {
+      groups.set(key, { sources: new Set(), items: [] })
+    }
+    const g = groups.get(key)!
+    g.sources.add(item.sourceId.split("-")[0])
+    g.items.push({ ...item, hotLevel: 0, sourceCount: 1, isExclusive: false })
+  }
+
+  for (const [, g] of groups) {
+    const sourceCount = g.sources.size
+    const hotLevel = sourceCount >= 3 ? 2 : sourceCount >= 2 ? 1 : 0
+
+    for (const item of g.items) {
+      item.hotLevel = hotLevel
+      item.sourceCount = sourceCount
+      item.isExclusive = false
+    }
+
+    if (sourceCount === 1) {
+      const onlySource = [...g.sources][0]
+      if (PRIORITY_SOURCES.has(onlySource)) {
+        for (const item of g.items) {
+          item.isExclusive = true
+        }
+      }
+    }
+  }
+
+  // Dedup: keep only the highest-scoring item per group
+  const deduped: EnrichedItem[] = []
+  for (const [, g] of groups) {
+    const best = g.items.sort((a, b) => b.finalScore - a.finalScore)[0]
+    deduped.push(best)
+  }
+
+  return deduped.sort((a, b) => {
+    if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore
+    return (b.pubDate || 0) - (a.pubDate || 0)
+  })
+}
 
 // Sources to scan — premium + Chinese finance/business sources
 const SCAN_SOURCES = [
@@ -119,7 +178,8 @@ export default defineEventHandler(async (event) => {
   }
 
   const ranked = scoreAndRank(allItems)
-  const picks = ranked.slice(0, 50) // keep more for 24h accumulation
+  const enriched = aggregateAndDedup(ranked)
+  const picks = enriched.slice(0, 50) // keep more for 24h accumulation
 
   // --- Save to Redis (merge with existing) ---
   if (redisOk && picks.length > 0) {

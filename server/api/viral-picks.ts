@@ -69,6 +69,18 @@ export default defineEventHandler(async (event) => {
     const srcBadge = p.sourceWeight > 1 ? `<span style="padding:1px 5px;border-radius:4px;font-size:9px;background:#DBEAFE;color:#1E40AF">优先源</span>` : ""
     const time = timeLabel(p.hoursAgo)
 
+    const hotBadge = p.hotLevel >= 2
+      ? '<span style="background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:10px;font-size:11px;margin-left:6px">🔥🔥 多源热点</span>'
+      : p.hotLevel === 1
+      ? '<span style="background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:10px;font-size:11px;margin-left:6px">🔥 多源热点</span>'
+      : ''
+    const exclusiveBadge = p.isExclusive
+      ? '<span style="background:#EDE9FE;color:#5B21B6;padding:2px 6px;border-radius:10px;font-size:11px;margin-left:6px">💎 独家</span>'
+      : ''
+    const sourceCountHint = p.sourceCount > 1
+      ? ` <span style="color:#6b7280;font-size:11px">(${p.sourceCount}源报道)</span>`
+      : ''
+
     const riskHtml = p.riskHits && p.riskHits.length > 0
       ? `<div style="margin-top:4px;padding:3px 6px;border-radius:4px;font-size:9px;background:${p.svPenalty >= 25 ? "#FEF2F2" : "#FFFBEB"};color:${p.svPenalty >= 25 ? "#991B1B" : "#92400E"}">⛔ -${p.svPenalty}% ${(p.riskHits || []).map((r: any) => r.label).join(", ")}</div>`
       : ""
@@ -84,7 +96,7 @@ export default defineEventHandler(async (event) => {
           <div style="font-size:16px;font-weight:700;color:${gc[p.grade] || "#9CA3AF"};flex-shrink:0">${p.finalScore}</div>
         </div>
         <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#9ca3af;margin-bottom:4px">
-          <span>${p.source}</span>${srcBadge}${time ? `<span>· ${time}</span>` : ""}
+          <span>${p.source}</span>${sourceCountHint}${srcBadge}${hotBadge}${exclusiveBadge}${time ? `<span>· ${time}</span>` : ""}
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:3px">${tags.join("")}${chinaBadge}</div>
         ${riskHtml}
