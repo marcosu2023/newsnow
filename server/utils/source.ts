@@ -25,8 +25,7 @@ export function defineRSSSource(url: string, option?: SourceOption): SourceGette
 
 export function defineRSSHubSource(route: string, RSSHubOptions?: RSSHubOption, sourceOption?: SourceOption): SourceGetter {
   return async () => {
-    // "https://rsshub.pseudoyu.com"
-    const RSSHubBase = "https://rsshub.rssforever.com"
+    const RSSHubBase = process.env.RSSHUB_URL || "https://rsshub.rssforever.com"
     const url = new URL(route, RSSHubBase)
     url.searchParams.set("format", "json")
     RSSHubOptions = defu<RSSHubOption, RSSHubOption[]>(RSSHubOptions, {
