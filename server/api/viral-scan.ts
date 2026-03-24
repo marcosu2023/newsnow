@@ -9,7 +9,11 @@ interface EnrichedItem extends ScoredItem {
 }
 
 function getGroupKey(title: string): string {
-  return title.replace(/\s+/g, "").slice(0, 20)
+  // Strip common source prefixes, punctuation, whitespace → extract core entity+event
+  const cleaned = title
+    .replace(/^(LSEG数据显示|据[^，。]{1,10}[称报]道?|消息[称人]?[：:]?|外媒[：:]?|快讯[：:]?)/, "")
+    .replace(/[，。、！？：；""''（）()\[\]【】「」\s·|｜—\-]/g, "")
+  return cleaned.slice(0, 25)
 }
 
 const PRIORITY_SOURCES = new Set(["caixin", "reuters", "bloomberg", "wsj", "ft"])

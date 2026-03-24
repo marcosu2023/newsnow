@@ -23,19 +23,35 @@ export default defineEventHandler(async (event) => {
 
   const gc: Record<string, string> = { S: "#DC2626", A: "#D97706", B: "#2563EB", C: "#6B7280", D: "#9CA3AF" }
 
-  // Sort helpers: mechanism-first sorting
+  // Sort helpers: S-grade first, then mechanism-primary, then by score
   function mechFirst(items: any[], primaryMech: string) {
-    const primary = items.filter((p: any) => p.mechanism === primaryMech)
-    const rest = items.filter((p: any) => p.mechanism !== primaryMech)
-    return [...primary, ...rest]
+    return [...items].sort((a, b) => {
+      // S-grade (≥30) always floats to top
+      const aIsS = (a.finalScore >= 30) ? 1 : 0
+      const bIsS = (b.finalScore >= 30) ? 1 : 0
+      if (bIsS !== aIsS) return bIsS - aIsS
+      // Within same tier, primary mechanism first
+      const aPri = (a.mechanism === primaryMech) ? 1 : 0
+      const bPri = (b.mechanism === primaryMech) ? 1 : 0
+      if (bPri !== aPri) return bPri - aPri
+      // Then by score descending
+      return b.finalScore - a.finalScore
+    })
   }
 
   // Sections — each item appears only once across all sections
   const used = new Set<string>()
+  function dedupKey(title: string): string {
+    return title
+      .replace(/^(LSEG数据显示|据[^，。]{1,10}[称报]道?|消息[称人]?[：:]?|外媒[：:]?|快讯[：:]?)/, "")
+      .replace(/[，。、！？：；""''（）()\[\]【】「」\s·|｜—\-]/g, "")
+      .slice(0, 25)
+  }
+
   function takeUnique(items: any[], limit: number) {
     const result: any[] = []
     for (const p of items) {
-      const key = (p.title || "").slice(0, 30)
+      const key = dedupKey(p.title || "")
       if (used.has(key)) continue
       used.add(key)
       result.push(p)

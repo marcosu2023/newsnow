@@ -225,7 +225,11 @@ export function scoreAndRank(items: { title: string; url: string; sourceId: stri
 
   const seen = new Map<string, ScoredItem>()
   for (const s of scored) {
-    const key = s.title.slice(0, 30)
+    // Match the groupKey logic in viral-scan.ts for consistent dedup
+    const key = s.title
+      .replace(/^(LSEG数据显示|据[^，。]{1,10}[称报]道?|消息[称人]?[：:]?|外媒[：:]?|快讯[：:]?)/, "")
+      .replace(/[，。、！？：；""''（）()\[\]【】「」\s·|｜—\-]/g, "")
+      .slice(0, 25)
     const existing = seen.get(key)
     if (!existing || s.finalScore > existing.finalScore) seen.set(key, s)
   }
