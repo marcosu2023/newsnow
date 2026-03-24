@@ -12,22 +12,8 @@ services:
       - NODE_ENV=production
       - INIT_TABLE=true
       - ENABLE_CACHE=true
-      - RSSHUB_URL=http://rsshub:1200
-      # 可选：Upstash Redis 缓存（viral-scan 用）
-      # - UPSTASH_REDIS_REST_URL=
-      # - UPSTASH_REDIS_REST_TOKEN=
-    depends_on:
-      - rsshub
-    restart: unless-stopped
-
-  rsshub:
-    image: diygod/rsshub:latest
-    container_name: rsshub
-    ports:
-      - '1200:1200'
-    environment:
-      - NODE_ENV=production
-      - CACHE_TYPE=memory
+      # 使用公共 RSSHub，无需自建
+      # - RSSHUB_URL=http://rsshub:1200
     restart: unless-stopped
 
 volumes:
