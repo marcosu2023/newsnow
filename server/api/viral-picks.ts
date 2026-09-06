@@ -1,3 +1,5 @@
+import { getGroupKey } from "../lib/viral-scorer"
+
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
   const forceRefresh = query.refresh === "1"
@@ -41,12 +43,7 @@ export default defineEventHandler(async (event) => {
 
   // Sections — each item appears only once across all sections
   const used = new Set<string>()
-  function dedupKey(title: string): string {
-    return title
-      .replace(/^(LSEG数据显示|据[^，。]{1,10}[称报]道?|消息[称人]?[：:]?|外媒[：:]?|快讯[：:]?)/, "")
-      .replace(/[，。、！？：；"'（）()[\]【】「」\s·|｜—\-]/g, "")
-      .slice(0, 25)
-  }
+  const dedupKey = getGroupKey
 
   function takeUnique(items: any[], limit: number) {
     const result: any[] = []

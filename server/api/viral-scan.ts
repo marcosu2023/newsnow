@@ -1,25 +1,15 @@
-import { scoreAndRank, type ScoredItem } from "../lib/viral-scorer"
-import { shouldRefresh, getCachedPicks, savePicks, isRedisConfigured } from "../lib/redis-cache"
+import { PRIORITY_SOURCES, type ScoredItem, getGroupKey, scoreAndRank } from "../lib/viral-scorer"
+import { getCachedPicks, isRedisConfigured, savePicks, shouldRefresh } from "../lib/redis-cache"
 
 // --- Multi-source aggregation types & helpers ---
 interface EnrichedItem extends ScoredItem {
-  hotLevel: number      // 0=普通, 1=🔥(2源), 2=🔥🔥(3源+)
-  sourceCount: number   // 报道该事件的源数量
-  isExclusive: boolean  // 是否为五大源独家
+  hotLevel: number // 0=普通, 1=🔥(2源), 2=🔥🔥(3源+)
+  sourceCount: number // 报道该事件的源数量
+  isExclusive: boolean // 是否为五大源独家
 }
-
-function getGroupKey(title: string): string {
-  // Strip common source prefixes, punctuation, whitespace → extract core entity+event
-  const cleaned = title
-    .replace(/^(LSEG数据显示|据[^，。]{1,10}[称报]道?|消息[称人]?[：:]?|外媒[：:]?|快讯[：:]?)/, "")
-    .replace(/[，。、！？：；""''（）()\[\]【】「」\s·|｜—\-]/g, "")
-  return cleaned.slice(0, 25)
-}
-
-const PRIORITY_SOURCES = new Set(["caixin", "reuters", "bloomberg", "wsj", "ft"])
 
 function aggregateAndDedup(scoredItems: ScoredItem[]): EnrichedItem[] {
-  const groups = new Map<string, { sources: Set<string>; items: EnrichedItem[] }>()
+  const groups = new Map<string, { sources: Set<string>, items: EnrichedItem[] }>()
 
   for (const item of scoredItems) {
     const key = getGroupKey(item.title)
@@ -87,12 +77,12 @@ const SCAN_SOURCES = [
 ]
 
 async function fetchAllSources(debug: boolean) {
-  const debugLogs: { id: string; status: string; itemCount: number; error?: string }[] = []
+  const debugLogs: { id: string, status: string, itemCount: number, error?: string }[] = []
 
   const results = await Promise.allSettled(
     SCAN_SOURCES.map(async (src) => {
       try {
-        const res = await $fetch<{ items?: { id?: string | number; title?: string; url?: string; pubDate?: number | string; extra?: { date?: string | number } }[] }>(`/api/s`, {
+        const res = await $fetch<{ items?: { id?: string | number, title?: string, url?: string, pubDate?: number | string, extra?: { date?: string | number } }[] }>(`/api/s`, {
           query: { id: src.id, latest: "true" },
         })
         const items = (res.items || [])
@@ -102,10 +92,13 @@ async function fetchAllSources(debug: boolean) {
             url: item.url || "",
             sourceId: src.id,
             sourceName: src.name,
-            pubDate: typeof item.pubDate === "string" ? Date.parse(item.pubDate) || undefined
-              : typeof item.pubDate === "number" ? item.pubDate
-              : typeof item.extra?.date === "string" ? Date.parse(item.extra.date) || undefined
-              : item.extra?.date,
+            pubDate: typeof item.pubDate === "string"
+              ? Date.parse(item.pubDate) || undefined
+              : typeof item.pubDate === "number"
+                ? item.pubDate
+                : typeof item.extra?.date === "string"
+                  ? Date.parse(item.extra.date) || undefined
+                  : item.extra?.date,
           }))
         if (debug) {
           debugLogs.push({ id: src.id, status: "ok", itemCount: items.length })
@@ -120,7 +113,7 @@ async function fetchAllSources(debug: boolean) {
     }),
   )
 
-  const allItems: { title: string; url: string; sourceId: string; sourceName: string; pubDate?: number }[] = []
+  const allItems: { title: string, url: string, sourceId: string, sourceName: string, pubDate?: number }[] = []
   let sourcesScanned = 0
 
   for (const r of results) {
