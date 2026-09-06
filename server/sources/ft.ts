@@ -4,16 +4,17 @@ const chinaKeywords = /china|chinese|beijing|shanghai|hong kong|taiwan|yuan|renm
 
 async function translateTitle(title: string): Promise<string | undefined> {
   try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${encodeURIComponent(title)}`
-    const res: any = await myFetch(url)
-    return res?.[0]?.[0]?.[0]
-  } catch {
+    const url = `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=en&tl=zh-CN&q=${encodeURIComponent(title)}`
+    const res: any = await proxyFetch(url)
+    return typeof res?.[0] === "string" ? res[0] : undefined
+  } catch (error) {
+    console.warn("[ft] Google title translation failed:", error instanceof Error ? error.message : String(error))
     return undefined
   }
 }
 
 export default defineSource(async () => {
-  const getter = defineRSSSource("https://www.ft.com/?format=rss")
+  const getter = defineProxyRSSSource("https://www.ft.com/?format=rss")
   const items = await getter()
 
   const sorted = items.sort((a, b) => {

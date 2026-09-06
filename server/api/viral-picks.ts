@@ -14,11 +14,11 @@ export default defineEventHandler(async (event) => {
   })
 
   // Mechanism config
-  const mechConfig: Record<string, { emoji: string; color: string; bg: string; label: string }> = {
-    "裂变": { emoji: "🔥", color: "#DC2626", bg: "#FEF2F2", label: "裂变" },
-    "争议": { emoji: "💬", color: "#2563EB", bg: "#EFF6FF", label: "争议" },
-    "涨粉": { emoji: "👤", color: "#059669", bg: "#ECFDF5", label: "涨粉" },
-    "流量": { emoji: "👁", color: "#6B7280", bg: "#F9FAFB", label: "流量" },
+  const mechConfig: Record<string, { emoji: string, color: string, bg: string, label: string }> = {
+    裂变: { emoji: "🔥", color: "#DC2626", bg: "#FEF2F2", label: "裂变" },
+    争议: { emoji: "💬", color: "#2563EB", bg: "#EFF6FF", label: "争议" },
+    涨粉: { emoji: "👤", color: "#059669", bg: "#ECFDF5", label: "涨粉" },
+    流量: { emoji: "👁", color: "#6B7280", bg: "#F9FAFB", label: "流量" },
   }
 
   const gc: Record<string, string> = { S: "#DC2626", A: "#D97706", B: "#2563EB", C: "#6B7280", D: "#9CA3AF" }
@@ -44,7 +44,7 @@ export default defineEventHandler(async (event) => {
   function dedupKey(title: string): string {
     return title
       .replace(/^(LSEG数据显示|据[^，。]{1,10}[称报]道?|消息[称人]?[：:]?|外媒[：:]?|快讯[：:]?)/, "")
-      .replace(/[，。、！？：；""''（）()\[\]【】「」\s·|｜—\-]/g, "")
+      .replace(/[，。、！？：；"'（）()[\]【】「」\s·|｜—\-]/g, "")
       .slice(0, 25)
   }
 
@@ -75,9 +75,9 @@ export default defineEventHandler(async (event) => {
       if (diffMin < 30) return "" // fake time — suppress display
     }
     if (!h) return ""
-    if (h < 1) return Math.round(h * 60) + "分钟前"
-    if (h < 24) return Math.round(h) + "小时前"
-    return Math.round(h / 24) + "天前"
+    if (h < 1) return `${Math.round(h * 60)}分钟前`
+    if (h < 24) return `${Math.round(h)}小时前`
+    return `${Math.round(h / 24)}天前`
   }
 
   function cardHtml(p: any): string {
@@ -94,16 +94,16 @@ export default defineEventHandler(async (event) => {
     const time = timeLabel(p)
 
     const hotBadge = p.hotLevel >= 2
-      ? '<span style="background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:10px;font-size:11px;margin-left:6px">🔥🔥 多源热点</span>'
+      ? "<span style=\"background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:10px;font-size:11px;margin-left:6px\">🔥🔥 多源热点</span>"
       : p.hotLevel === 1
-      ? '<span style="background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:10px;font-size:11px;margin-left:6px">🔥 多源热点</span>'
-      : ''
+        ? "<span style=\"background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:10px;font-size:11px;margin-left:6px\">🔥 多源热点</span>"
+        : ""
     const exclusiveBadge = p.isExclusive
-      ? '<span style="background:#EDE9FE;color:#5B21B6;padding:2px 6px;border-radius:10px;font-size:11px;margin-left:6px">💎 独家</span>'
-      : ''
+      ? "<span style=\"background:#EDE9FE;color:#5B21B6;padding:2px 6px;border-radius:10px;font-size:11px;margin-left:6px\">💎 独家</span>"
+      : ""
     const sourceCountHint = p.sourceCount > 1
       ? ` <span style="color:#6b7280;font-size:11px">(${p.sourceCount}源报道)</span>`
-      : ''
+      : ""
 
     const riskHtml = p.riskHits && p.riskHits.length > 0
       ? `<div style="margin-top:4px;padding:3px 6px;border-radius:4px;font-size:9px;background:${p.svPenalty >= 25 ? "#FEF2F2" : "#FFFBEB"};color:${p.svPenalty >= 25 ? "#991B1B" : "#92400E"}">⛔ -${p.svPenalty}% ${(p.riskHits || []).map((r: any) => r.label).join(", ")}</div>`
@@ -135,12 +135,47 @@ export default defineEventHandler(async (event) => {
         <h2 style="font-size:15px;font-weight:600;color:#111;border-left:3px solid ${borderColor};padding-left:8px">${title}</h2>
       </div>
       <div style="font-size:11px;color:#6b7280;margin-bottom:10px;padding-left:11px">${subtitle}</div>
-      ${items.length > 0 ? items.map(cardHtml).join("") : '<div style="font-size:12px;color:#9ca3af;text-align:center;padding:20px">暂无匹配选题</div>'}
+      ${items.length > 0 ? items.map(cardHtml).join("") : "<div style=\"font-size:12px;color:#9ca3af;text-align:center;padding:20px\">暂无匹配选题</div>"}
     </div>`
   }
 
   const now = data.timestamp ? new Date(data.timestamp).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : ""
-  const cacheLabel = data.fromCache ? '<span style="color:#2563EB">缓存</span>' : '<span style="color:#16A34A">实时</span>'
+  const cacheLabel = data.fromCache ? "<span style=\"color:#2563EB\">缓存</span>" : "<span style=\"color:#16A34A\">实时</span>"
+
+  // --- Embedded JSON for downstream consumers (e.g. datanews decision layer) ---
+  // All filtered picks (the 8-hour window) in structured form.
+  // Downstream code locates this by: <script id="__VIRAL_DATA__" type="application/json">
+  const embeddedData = {
+    version: "4.0",
+    generatedAt: data.timestamp || Date.now(),
+    fetchedAt,
+    totalScanned: data.totalScanned || 0,
+    sourcesScanned: data.sourcesScanned || 0,
+    windowHours: 8,
+    picks: picks.map((p: any) => ({
+      title: p.title,
+      url: p.url,
+      source: p.source,
+      finalScore: p.finalScore,
+      grade: p.grade,
+      mechanism: p.mechanism,
+      hoursAgo: p.hoursAgo ?? null,
+      pubDate: p.pubDate ?? null,
+      domainHits: p.domainHits || [],
+      scaleHits: p.scaleHits || [],
+      socialHits: p.socialHits || [],
+      narrativeHits: p.narrativeHits || [],
+      chinaBoost: !!p.chinaBoost,
+      sourceWeight: p.sourceWeight ?? 1,
+      hotLevel: p.hotLevel ?? 0,
+      isExclusive: !!p.isExclusive,
+      sourceCount: p.sourceCount ?? 1,
+      riskHits: p.riskHits || [],
+      svPenalty: p.svPenalty ?? 0,
+    })),
+  }
+  // Escape `</` to prevent early termination of the <script> block.
+  const embeddedJson = `<script id="__VIRAL_DATA__" type="application/json">${JSON.stringify(embeddedData).replace(/<\/(script)/gi, "<\\/$1")}</script>`
 
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -202,6 +237,7 @@ export default defineEventHandler(async (event) => {
       <div>v1.0 · 2026-03-18 · 首版选题扫描器上线；16源抓取；中国贴近性加权；4栏布局；五大源优先权重</div>
     </div>
   </div>
+  ${embeddedJson}
 </body>
 </html>`
 

@@ -1,11 +1,7 @@
 import { XMLParser } from "fast-xml-parser"
 import type { RSSInfo } from "../types"
 
-export async function rss2json(url: string): Promise<RSSInfo | undefined> {
-  if (!/^https?:\/\/[^\s$.?#].\S*/i.test(url)) return
-
-  const data = await myFetch(url)
-
+function parseRssData(data: any): RSSInfo {
   const xml = new XMLParser({
     attributeNamePrefix: "",
     textNodeName: "$text",
@@ -78,4 +74,16 @@ export async function rss2json(url: string): Promise<RSSInfo | undefined> {
   }
 
   return rss
+}
+
+export async function rss2json(url: string): Promise<RSSInfo | undefined> {
+  if (!/^https?:\/\/[^\s$.?#].\S*/i.test(url)) return
+  const data = await myFetch(url)
+  return parseRssData(data)
+}
+
+export async function proxyRss2json(url: string): Promise<RSSInfo | undefined> {
+  if (!/^https?:\/\/[^\s$.?#].\S*/i.test(url)) return
+  const data = await proxyFetch(url)
+  return parseRssData(data)
 }

@@ -1,0 +1,49 @@
+# Mihomo (Clash.Meta) config for NewsNow proxy
+# Docs: https://wiki.metacubex.one/
+
+mixed-port: 7890
+allow-lan: true
+bind-address: '*'
+mode: rule
+log-level: warning
+external-controller: 0.0.0.0:9090
+
+# === Paste your proxy nodes here ===
+# Option 1: subscription URL (recommended)
+# proxy-providers:
+#   my-sub:
+#     type: http
+#     url: "https://your-subscription-url-here"
+#     interval: 86400
+#     path: ./providers/my-sub.yaml
+#     health-check:
+#       enable: true
+#       url: https://www.gstatic.com/generate_204
+#       interval: 300
+
+# Option 2: manual proxy node
+# proxies:
+#   - name: "my-proxy"
+#     type: ss
+#     server: your-server.com
+#     port: 8388
+#     cipher: aes-256-gcm
+#     password: "your-password"
+
+# proxy-groups:
+#   - name: PROXY
+#     type: select
+#     use:
+#       - my-sub
+#     # or proxies: ["my-proxy"]
+
+# === Rules ===
+# Only proxy blocked sites, everything else direct
+rules:
+  - DOMAIN-SUFFIX,reuters.com,PROXY
+  - DOMAIN-SUFFIX,ft.com,PROXY
+  - DOMAIN-SUFFIX,google.com,PROXY
+  - DOMAIN-SUFFIX,googleapis.com,PROXY
+  - DOMAIN-SUFFIX,wsj.com,PROXY
+  - DOMAIN-SUFFIX,bloomberg.com,PROXY
+  - MATCH,DIRECT

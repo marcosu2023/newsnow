@@ -13,7 +13,7 @@ async function fetchSitemapPage(from?: number): Promise<SitemapEntry[]> {
   const url = from
     ? `https://www.reuters.com/arc/outboundfeeds/news-sitemap/?outputType=xml&from=${from}`
     : `https://www.reuters.com/arc/outboundfeeds/news-sitemap/?outputType=xml`
-  const xml: string = await myFetch(url, { responseType: "text" })
+  const xml: string = await proxyFetch(url, { responseType: "text" }) as string
 
   const entries: SitemapEntry[] = []
   const urlBlocks = xml.split("<url>").slice(1)
@@ -30,10 +30,11 @@ async function fetchSitemapPage(from?: number): Promise<SitemapEntry[]> {
 
 async function translateTitle(title: string): Promise<string | undefined> {
   try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${encodeURIComponent(title)}`
-    const res: any = await myFetch(url)
-    return res?.[0]?.[0]?.[0]
-  } catch {
+    const url = `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=en&tl=zh-CN&q=${encodeURIComponent(title)}`
+    const res: any = await proxyFetch(url)
+    return typeof res?.[0] === "string" ? res[0] : undefined
+  } catch (error) {
+    console.warn("[reuters] Google title translation failed:", error instanceof Error ? error.message : String(error))
     return undefined
   }
 }

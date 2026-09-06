@@ -14,11 +14,13 @@ services:
       - ENABLE_CACHE=true
       # 使用公共 RSSHub，无需自建
       # - RSSHUB_URL=http://rsshub:1200
-      # 代理设置（访问 Reuters/WSJ/FT/Google翻译需要）
-      # 改成你的代理地址，例如 http://192.168.1.1:7890
-      # - HTTP_PROXY=http://你的代理地址:端口
-      # - HTTPS_PROXY=http://你的代理地址:端口
-      # - NO_PROXY=localhost,127.0.0.1
+      # 代理设置（仅被墙的源走代理：Reuters/WSJ/FT/Google翻译）
+      # 在本文件同级目录建一个 .env（已被 gitignore）写入真实地址，例如：
+      #   PROXY_URL=http://192.168.1.1:7890
+      # 留空则所有源都直连，不走代理
+      - HTTPS_PROXY=${PROXY_URL:-}
+      - HTTP_PROXY=${PROXY_URL:-}
+      - NO_PROXY=localhost,127.0.0.1
     restart: unless-stopped
 
 volumes:

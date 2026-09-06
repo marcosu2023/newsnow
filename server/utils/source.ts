@@ -23,6 +23,19 @@ export function defineRSSSource(url: string, option?: SourceOption): SourceGette
   }
 }
 
+export function defineProxyRSSSource(url: string, option?: SourceOption): SourceGetter {
+  return async () => {
+    const data = await proxyRss2json(url)
+    if (!data?.items.length) throw new Error("Cannot fetch rss data")
+    return data.items.map(item => ({
+      title: item.title,
+      url: item.link,
+      id: item.link,
+      pubDate: !option?.hiddenDate ? item.created : undefined,
+    }))
+  }
+}
+
 export function defineRSSHubSource(route: string, RSSHubOptions?: RSSHubOption, sourceOption?: SourceOption): SourceGetter {
   return async () => {
     const RSSHubBase = process.env.RSSHUB_URL || "https://rsshub.rssforever.com"

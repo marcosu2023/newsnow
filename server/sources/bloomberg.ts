@@ -1,20 +1,21 @@
 import type { NewsItem } from "@shared/types"
+import { fetchGoogleNewsSite } from "../utils/google-news"
 
 const chinaKeywords = /china|chinese|beijing|shanghai|hong kong|taiwan|yuan|renminbi|xi jinping|trade war|tariff/i
 
 async function translateTitle(title: string): Promise<string | undefined> {
   try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${encodeURIComponent(title)}`
-    const res: any = await myFetch(url)
-    return res?.[0]?.[0]?.[0]
-  } catch {
+    const url = `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=en&tl=zh-CN&q=${encodeURIComponent(title)}`
+    const res: any = await proxyFetch(url)
+    return typeof res?.[0] === "string" ? res[0] : undefined
+  } catch (error) {
+    console.warn("[bloomberg] Google title translation failed:", error instanceof Error ? error.message : String(error))
     return undefined
   }
 }
 
 export default defineSource(async () => {
-  const getter = defineRSSHubSource("/bloomberg")
-  const items = await getter()
+  const items = await fetchGoogleNewsSite("bloomberg.com")
 
   const sorted = items.sort((a, b) => {
     const aChina = chinaKeywords.test(a.title) ? 0 : 1
