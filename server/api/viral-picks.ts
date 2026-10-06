@@ -1,4 +1,6 @@
+import { defineEventHandler, getQuery } from "h3"
 import { getGroupKey } from "../lib/viral-scorer"
+import { candidateRejection } from "../lib/viral-input"
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
@@ -10,10 +12,8 @@ export default defineEventHandler(async (event) => {
   } catch {}
 
   // Hard cap: only show news from the last 8 hours
-  const picks = (data.picks || []).filter((p: any) => {
-    if (!p.hoursAgo && !p.pubDate) return (p.finalScore || 0) >= 8
-    return (p.hoursAgo || 0) <= 8
-  })
+  const nowMs = Date.now()
+  const picks = (data.picks || []).filter((p: any) => !candidateRejection({ ...p, sourceName: p.source }, nowMs))
 
   // Mechanism config
   const mechConfig: Record<string, { emoji: string, color: string, bg: string, label: string }> = {
@@ -64,14 +64,9 @@ export default defineEventHandler(async (event) => {
   const fetchedAt = data.fetchedAt || Date.now()
 
   function timeLabel(p: any): string {
+    if (p.dateStatus === "missing" || !p.pubDate) return "发布时间未知"
     const h = p.hoursAgo
-    if (!h && !p.pubDate) return ""
-    // If pubDate is within 30 min of fetch time, it's likely a fake time from RSS feed
-    if (p.pubDate && fetchedAt) {
-      const diffMin = Math.abs(fetchedAt - p.pubDate) / 60000
-      if (diffMin < 30) return "" // fake time — suppress display
-    }
-    if (!h) return ""
+    if (!h) return "刚刚"
     if (h < 1) return `${Math.round(h * 60)}分钟前`
     if (h < 24) return `${Math.round(h)}小时前`
     return `${Math.round(h / 24)}天前`
@@ -158,6 +153,11 @@ export default defineEventHandler(async (event) => {
       mechanism: p.mechanism,
       hoursAgo: p.hoursAgo ?? null,
       pubDate: p.pubDate ?? null,
+      dateStatus: p.dateStatus,
+      observedAt: p._scanTime,
+      sourceId: p.sourceId,
+      sources: p.sources || [],
+      singlePrioritySource: !!p.singlePrioritySource,
       domainHits: p.domainHits || [],
       scaleHits: p.scaleHits || [],
       socialHits: p.socialHits || [],
