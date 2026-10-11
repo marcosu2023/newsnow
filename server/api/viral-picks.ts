@@ -15,51 +15,25 @@ export default defineEventHandler(async (event) => {
   const nowMs = Date.now()
   const picks = (data.picks || []).filter((p: any) => !candidateRejection({ ...p, sourceName: p.source }, nowMs))
 
-  // Mechanism config
-  const mechConfig: Record<string, { emoji: string, color: string, bg: string, label: string }> = {
-    裂变: { emoji: "🔥", color: "#DC2626", bg: "#FEF2F2", label: "裂变" },
-    争议: { emoji: "💬", color: "#2563EB", bg: "#EFF6FF", label: "争议" },
-    涨粉: { emoji: "👤", color: "#059669", bg: "#ECFDF5", label: "涨粉" },
-    流量: { emoji: "👁", color: "#6B7280", bg: "#F9FAFB", label: "流量" },
+  // Publish slot by mechanism (data from v3 analysis)
+  const slotByMech: Record<string, string> = {
+    争议: "建议 8:00–11:00 发",
+    裂变: "建议 15:00–17:00 发",
   }
 
-  const gc: Record<string, string> = { S: "#DC2626", A: "#D97706", B: "#2563EB", C: "#6B7280", D: "#9CA3AF" }
-
-  // Sort helpers: S-grade first, then mechanism-primary, then by score
-  function mechFirst(items: any[], primaryMech: string) {
-    return [...items].sort((a, b) => {
-      // S-grade (≥30) always floats to top
-      const aIsS = (a.finalScore >= 30) ? 1 : 0
-      const bIsS = (b.finalScore >= 30) ? 1 : 0
-      if (bIsS !== aIsS) return bIsS - aIsS
-      // Within same tier, primary mechanism first
-      const aPri = (a.mechanism === primaryMech) ? 1 : 0
-      const bPri = (b.mechanism === primaryMech) ? 1 : 0
-      if (bPri !== aPri) return bPri - aPri
-      // Then by score descending
-      return b.finalScore - a.finalScore
-    })
-  }
-
-  // Sections — each item appears only once across all sections
+  // Single list: score descending, each story group appears once
   const used = new Set<string>()
-  const dedupKey = getGroupKey
-
-  function takeUnique(items: any[], limit: number) {
-    const result: any[] = []
-    for (const p of items) {
-      const key = dedupKey(p.title || "")
-      if (used.has(key)) continue
-      used.add(key)
-      result.push(p)
-      if (result.length >= limit) break
-    }
-    return result
+  const ranked: any[] = []
+  for (const p of [...picks].sort((a: any, b: any) => b.finalScore - a.finalScore)) {
+    const key = getGroupKey(p.title || "")
+    if (used.has(key)) continue
+    used.add(key)
+    ranked.push(p)
+    if (ranked.length >= 50) break
   }
-
-  const morningPicks = takeUnique(mechFirst(picks, "争议"), 15)
-  const afternoonPicks = takeUnique(mechFirst(picks, "裂变"), 15)
-  const remainingPicks = takeUnique(picks, 20)
+  const topPicks = ranked.slice(0, 3)
+  const listPicks = ranked.slice(3, 10)
+  const morePicks = ranked.slice(10)
 
   const fetchedAt = data.fetchedAt || Date.now()
 
@@ -72,67 +46,54 @@ export default defineEventHandler(async (event) => {
     return `${Math.round(h / 24)}天前`
   }
 
-  function cardHtml(p: any): string {
-    const m = mechConfig[p.mechanism] || mechConfig["流量"]
+  function tagsOf(p: any): string[] {
+    return [...(p.domainHits || []), ...(p.scaleHits || []), ...(p.socialHits || []), ...(p.narrativeHits || [])].slice(0, 2)
+  }
 
-    const tags: string[] = []
-    for (const d of (p.domainHits || [])) tags.push(`<span style="padding:1px 6px;border-radius:10px;font-size:10px;background:#DBEAFE;color:#1E40AF">${d}</span>`)
-    for (const s of (p.scaleHits || [])) tags.push(`<span style="padding:1px 6px;border-radius:10px;font-size:10px;background:#D1FAE5;color:#065F46">${s}</span>`)
-    for (const s of (p.socialHits || [])) tags.push(`<span style="padding:1px 6px;border-radius:10px;font-size:10px;background:#FEF3C7;color:#92400E">${s}</span>`)
-    for (const n of (p.narrativeHits || [])) tags.push(`<span style="padding:1px 6px;border-radius:10px;font-size:10px;background:#F3E8FF;color:#7C3AED">${n}</span>`)
-
-    const chinaBadge = p.chinaBoost ? `<span style="padding:1px 6px;border-radius:10px;font-size:10px;background:#FEE2E2;color:#991B1B">中国+25%</span>` : ""
-    const srcBadge = p.sourceWeight > 1 ? `<span style="padding:1px 5px;border-radius:4px;font-size:9px;background:#DBEAFE;color:#1E40AF">优先源</span>` : ""
+  function metaLine(p: any): string {
+    const parts = [p.source]
+    if (p.sourceCount > 1) parts.push(`${p.sourceCount}源报道`)
+    if (p.isExclusive) parts.push("独家")
     const time = timeLabel(p)
+    if (time) parts.push(time)
+    return parts.join(" · ")
+  }
 
-    const hotBadge = p.hotLevel >= 2
-      ? "<span style=\"background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:10px;font-size:11px;margin-left:6px\">🔥🔥 多源热点</span>"
-      : p.hotLevel === 1
-        ? "<span style=\"background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:10px;font-size:11px;margin-left:6px\">🔥 多源热点</span>"
-        : ""
-    const exclusiveBadge = p.isExclusive
-      ? "<span style=\"background:#EDE9FE;color:#5B21B6;padding:2px 6px;border-radius:10px;font-size:11px;margin-left:6px\">💎 独家</span>"
-      : ""
-    const sourceCountHint = p.sourceCount > 1
-      ? ` <span style="color:#6b7280;font-size:11px">(${p.sourceCount}源报道)</span>`
-      : ""
+  function riskLine(p: any): string {
+    if (!p.riskHits || p.riskHits.length === 0) return ""
+    return `<div class="risk">风险 -${p.svPenalty}% ${p.riskHits.map((r: any) => r.label).join("、")}</div>`
+  }
 
-    const riskHtml = p.riskHits && p.riskHits.length > 0
-      ? `<div style="margin-top:4px;padding:3px 6px;border-radius:4px;font-size:9px;background:${p.svPenalty >= 25 ? "#FEF2F2" : "#FFFBEB"};color:${p.svPenalty >= 25 ? "#991B1B" : "#92400E"}">⛔ -${p.svPenalty}% ${(p.riskHits || []).map((r: any) => r.label).join(", ")}</div>`
-      : ""
-
-    return `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;gap:10px;align-items:start">
-      <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px">
-        <span style="font-size:18px">${m.emoji}</span>
-        <span style="padding:1px 6px;border-radius:10px;font-size:9px;font-weight:600;background:${m.bg};color:${m.color}">${m.label}</span>
+  function topCardHtml(p: any, i: number): string {
+    const tags = tagsOf(p)
+    const slot = slotByMech[p.mechanism]
+    return `<div class="card${i === 0 ? " first" : ""}">
+      <div class="card-hd">
+        <span class="mech">${i === 0 ? "今日首推 · " : ""}${p.mechanism || "流量"}</span>
+        <span class="card-score">${p.finalScore}</span>
       </div>
-      <div style="flex:1;min-width:0">
-        <div style="display:flex;justify-content:space-between;align-items:start;gap:6px;margin-bottom:4px">
-          <a href="${p.url}" target="_blank" rel="noopener" style="color:#111;text-decoration:none;font-size:13px;font-weight:500;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex:1">${p.title}</a>
-          <div style="font-size:16px;font-weight:700;color:${gc[p.grade] || "#9CA3AF"};flex-shrink:0">${p.finalScore}</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#9ca3af;margin-bottom:4px">
-          <span>${p.source}</span>${sourceCountHint}${srcBadge}${hotBadge}${exclusiveBadge}${time ? `<span>· ${time}</span>` : ""}
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:3px">${tags.join("")}${chinaBadge}</div>
-        ${riskHtml}
-      </div>
+      <a class="card-title" href="${p.url}" target="_blank" rel="noopener">${p.title}</a>
+      <div class="meta-line">${metaLine(p)}</div>
+      ${tags.length ? `<div class="reason">推荐理由：${tags.join("、")}</div>` : ""}
+      ${slot ? `<div class="slot">${slot}</div>` : ""}
+      ${riskLine(p)}
     </div>`
   }
 
-  function sectionHtml(title: string, subtitle: string, items: any[], borderColor: string, collapsed = false): string {
-    const style = collapsed ? "opacity:0.75;font-size:0.95em" : ""
-    return `<div style="margin-bottom:24px;${style}">
-      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px">
-        <h2 style="font-size:15px;font-weight:600;color:#111;border-left:3px solid ${borderColor};padding-left:8px">${title}</h2>
+  function rowHtml(p: any, rank: number): string {
+    const tags = tagsOf(p)
+    return `<div class="row">
+      <span class="rank">${rank}</span>
+      <div class="row-main">
+        <a class="row-title" href="${p.url}" target="_blank" rel="noopener"><span class="mech-sm">【${p.mechanism || "流量"}】</span>${p.title}</a>
+        <div class="meta-line">${metaLine(p)}${tags.map(t => `<span class="tag">${t}</span>`).join("")}</div>
+        ${riskLine(p)}
       </div>
-      <div style="font-size:11px;color:#6b7280;margin-bottom:10px;padding-left:11px">${subtitle}</div>
-      ${items.length > 0 ? items.map(cardHtml).join("") : "<div style=\"font-size:12px;color:#9ca3af;text-align:center;padding:20px\">暂无匹配选题</div>"}
+      <span class="row-score">${p.finalScore}</span>
     </div>`
   }
 
-  const now = data.timestamp ? new Date(data.timestamp).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : ""
-  const cacheLabel = data.fromCache ? "<span style=\"color:#2563EB\">缓存</span>" : "<span style=\"color:#16A34A\">实时</span>"
+  const updatedAt = data.timestamp ? new Date(data.timestamp).toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit" }) : ""
 
   // --- Embedded JSON for downstream consumers (e.g. datanews decision layer) ---
   // All filtered picks (the 8-hour window) in structured form.
@@ -182,51 +143,58 @@ export default defineEventHandler(async (event) => {
   <title>选题扫描</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f9fafb;color:#111;padding:16px;max-width:1200px;margin:0 auto}
-    .hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-    h1{font-size:18px;font-weight:600}
-    .meta{font-size:12px;color:#6b7280;margin-top:2px}
-    .btn{padding:6px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:12px;color:#374151;text-decoration:none;background:#fff;cursor:pointer}
-    .btn:hover{background:#f3f4f6}
-    .legend{display:flex;gap:6px;flex-wrap:wrap;font-size:10px;margin-bottom:16px}
-    .legend span{padding:2px 8px;border-radius:10px}
-    .divider{height:1px;background:#e5e7eb;margin:16px 0}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f9fafb;color:#111;padding:16px;max-width:1080px;margin:0 auto}
+    a{color:inherit;text-decoration:none}
+    a:hover{text-decoration:underline}
+    .hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+    h1{font-size:15px;font-weight:600}
+    h1 .meta{font-weight:400;color:#6b7280;font-size:12px;margin-left:6px}
+    .btn{padding:5px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:12px;color:#374151;background:#fff}
+    .btn:hover{background:#f3f4f6;text-decoration:none}
+    .top{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+    @media(max-width:768px){.top{grid-template-columns:1fr}}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px}
+    .card.first{border-color:#DC2626;box-shadow:0 0 0 1px #DC2626 inset}
+    .card-hd{display:flex;justify-content:space-between;align-items:baseline}
+    .mech{font-size:11px;color:#6b7280}
+    .card.first .mech{color:#DC2626;font-weight:600}
+    .card-score{font-size:22px;font-weight:700;color:#6b7280}
+    .card.first .card-score{color:#DC2626}
+    .card-title{font-size:15px;font-weight:600;line-height:1.45}
+    .meta-line{font-size:11px;color:#9ca3af;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+    .reason{font-size:12px;color:#374151}
+    .slot{font-size:12px;color:#6b7280}
+    .risk{font-size:11px;color:#92400E;margin-top:2px}
+    .list{background:#fff;border:1px solid #e5e7eb;border-radius:10px}
+    .row{display:flex;align-items:flex-start;gap:12px;padding:10px 14px;border-top:1px solid #f3f4f6}
+    .row:first-child{border-top:none}
+    .rank{width:20px;font-size:12px;color:#9ca3af;padding-top:2px;flex-shrink:0;text-align:right}
+    .row-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+    .row-title{font-size:14px;line-height:1.45}
+    .mech-sm{color:#6b7280;font-size:12px}
+    .row-score{font-size:14px;font-weight:600;color:#6b7280;flex-shrink:0}
+    .tag{padding:0 6px;border-radius:8px;background:#f3f4f6;color:#6b7280}
+    details{margin-top:12px}
+    summary{cursor:pointer;font-size:12px;color:#6b7280;padding:8px 0;text-align:center}
+    .empty{font-size:12px;color:#9ca3af;text-align:center;padding:20px}
     .ft{font-size:10px;color:#9ca3af;text-align:center;padding:16px}
-    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-    @media(max-width:768px){.two-col{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
   <div class="hd">
-    <div>
-      <h1>选题扫描 <span style="font-size:12px;font-weight:400;color:#9ca3af">v4.0</span></h1>
-      <div class="meta">${data.totalScanned} 条新闻 · ${data.sourcesScanned} 源 · 8小时内 · ${now} · ${cacheLabel}</div>
-    </div>
-    <a class="btn" href="/api/viral-picks?refresh=1">强制刷新</a>
+    <h1>选题扫描<span class="meta">${data.totalScanned} 条 · ${data.sourcesScanned} 源 · 8小时内${updatedAt ? ` · ${updatedAt} 更新` : ""}</span></h1>
+    <a class="btn" href="/api/viral-picks?refresh=1">刷新</a>
   </div>
-  <div class="legend">
-    <span style="background:#FEF2F2;color:#DC2626">🔥 裂变型</span>
-    <span style="background:#EFF6FF;color:#2563EB">💬 争议型</span>
-    <span style="background:#ECFDF5;color:#059669">👤 涨粉型</span>
-    <span style="background:#F9FAFB;color:#6B7280;border:1px solid #e5e7eb">👁 流量型</span>
-    <span style="background:#DBEAFE;color:#1E40AF">话题领域</span>
-    <span style="background:#D1FAE5;color:#065F46">主体规模</span>
-    <span style="background:#FEF3C7;color:#92400E">社交共振</span>
-    <span style="background:#FEE2E2;color:#991B1B">中国贴近</span>
-    <span style="background:#F3E8FF;color:#7C3AED">叙事框架</span>
-    <span style="background:#F3F4F6;color:#6B7280">五大源 1.5x</span>
-  </div>
-  <div class="divider"></div>
-  <div class="two-col">
-    <div>${sectionHtml("上午档 · 建议 8:00–11:00 发布", "争议型选题在此时段爆款率最高", morningPicks, "#2563EB")}</div>
-    <div>${sectionHtml("下午档 · 建议 15:00–17:00 发布", "裂变型选题在此时段爆款率最高（15.8%）", afternoonPicks, "#DC2626")}</div>
-  </div>
-  <div class="divider"></div>
-  ${sectionHtml("更多选题", "以上未收录的近8小时选题", remainingPicks, "#6B7280", true)}
+  ${ranked.length === 0
+    ? "<div class=\"empty\">暂无匹配选题</div>"
+    : `<div class="top">${topPicks.map(topCardHtml).join("")}</div>
+  ${listPicks.length ? `<div class="list">${listPicks.map((p, i) => rowHtml(p, i + 4)).join("")}</div>` : ""}
+  ${morePicks.length ? `<details><summary>展开更多（${morePicks.length} 条）</summary><div class="list">${morePicks.map((p, i) => rowHtml(p, i + 11)).join("")}</div></details>` : ""}`}
   <div class="ft">
     选题评分模型 · 话题领域×主体规模×社交共振×叙事框架×中国贴近性 · 自见风险融入评分 · 爆法分类
     <div style="margin-top:12px;text-align:left;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.8">
       <div style="font-weight:600;margin-bottom:4px;color:#6b7280">更新日志</div>
+      <div>v4.1 · 2026-10-12 · 单列布局：前3条首推卡片 + 第4–10名列表，其余折叠；去掉上午/下午分档与图例</div>
       <div>v4.0 · 2026-03-24 · 新增叙事框架层（巨头新动作/政策转向/数据发布/预期反差/跨界竞争/供应链冲击/高层人事/监管出手/资本信号/行业里程碑）；左右双栏布局；展示容量扩至15+15+20</div>
       <div>v3.5 · 2026-03-23 · 多源聚合去重+独家标记；修复RSS假时间；缓存hoursAgo实时重算；8小时留存上限</div>
       <div>v3.0 · 2026-03-22 · v3权重（1213条短视频因子分析）；时间衰减评分；分级留存策略</div>
