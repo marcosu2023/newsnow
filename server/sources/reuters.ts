@@ -19,7 +19,15 @@ async function fetchSitemapPage(from?: number): Promise<SitemapEntry[]> {
   const urlBlocks = xml.split("<url>").slice(1)
   for (const block of urlBlocks) {
     const loc = block.match(/<loc>([^<]+)<\/loc>/)?.[1] ?? ""
-    const title = block.match(/<news:title><!\[CDATA\[(.+?)\]\]><\/news:title>/)?.[1] ?? ""
+    // Reuters 已不再用 CDATA 包裹标题，两种格式都兼容
+    const rawTitle = block.match(/<news:title>(?:<!\[CDATA\[)?([\s\S]+?)(?:\]\]>)?<\/news:title>/)?.[1] ?? ""
+    const title = rawTitle
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, "\"")
+      .replace(/&apos;|&#39;/g, "'")
+      .replace(/&amp;/g, "&")
+      .trim()
     const pubDate = block.match(/<news:publication_date>([^<]+)<\/news:publication_date>/)?.[1] ?? ""
     if (loc && title) {
       entries.push({ loc, title, pubDate })
