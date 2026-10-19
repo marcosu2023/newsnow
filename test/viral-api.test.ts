@@ -1,14 +1,19 @@
+import { runInNewContext } from "node:vm"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { scoreAndRank } from "../server/lib/viral-scorer"
 import { CACHE_KEY, savePicks } from "../server/lib/redis-cache"
-
-vi.mock("h3", async (importOriginal) => {
-  const original = await importOriginal<typeof import("h3")>()
-  return { ...original, getQuery: (event: any) => event.context.testQuery ?? {} }
-})
+import { recordAdoption, recordRecommendations } from "../server/lib/news4-recommendations"
 
 import scan from "../server/api/viral-scan"
 import picksPage from "../server/api/viral-picks"
+import adoption from "../server/api/news4-adoptions.post"
+
+vi.mock("../server/lib/news4-recommendations", () => ({ recordRecommendations: vi.fn(), recordAdoption: vi.fn() }))
+
+vi.mock("h3", async (importOriginal) => {
+  const original = await importOriginal<typeof import("h3")>()
+  return { ...original, getQuery: (event: any) => event.context.testQuery ?? {}, getHeader: (event: any, key: string) => event.context.headers?.[key], getRequestURL: () => new URL("http://example.test/api/news4-adoptions"), readBody: (event: any) => Promise.resolve(event.context.body) }
+})
 
 const NOW = Date.parse("2026-10-05T04:00:00Z")
 const row = { title: "华为宣布推出全新手机产品", url: "https://example.com/news/1", pubDate: NOW }
@@ -19,8 +24,10 @@ let sourceCalls: string[]
 let redisCalls: string[][]
 
 beforeEach(() => {
+  vi.mocked(recordRecommendations).mockReset().mockResolvedValue({ recommendationBatchId: "a".repeat(64), recommendationRecordStatus: "persisted", scorerVersion: "news4-scorer-v1.0.0-20261019" })
+  vi.mocked(recordAdoption).mockReset()
   vi.useFakeTimers({ now: NOW })
-  sourceRows = { reuters: [row], "cls-depth": [row] }
+  sourceRows = { "reuters": [row], "cls-depth": [row] }
   db = new Map()
   sourceCalls = []
   redisCalls = []
@@ -45,7 +52,11 @@ beforeEach(() => {
   }))
 })
 
-afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers() })
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+  vi.useRealTimers()
+})
 
 function configureRedis() {
   vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://redis.invalid")
@@ -58,7 +69,74 @@ function embeddedData(html: string) {
   return JSON.parse(json!)
 }
 
-describe("NEWS-3 offline scan and picks API contracts", () => {
+describe("nEWS-3 offline scan and picks API contracts", () => {
+  it("renders adoption IDs/buttons for cards, visible rows and folded rows without Dify/copy prompts", async () => {
+    sourceRows = { reuters: Array.from({ length: 12 }, (_, i) => ({ ...row, title: `中国企业项目公告编号${i}`, url: `${row.url}/${i}` })) }
+    const html = await picksPage(event()) as string
+    expect(html.match(/class="btn adopt"/g)).toHaveLength(12)
+    expect(html).toContain("推荐 ID aaaaaaaa:12")
+    expect(html).not.toMatch(/建议发布时段|Dify|复制/)
+  })
+  it("accepts only an ID and rejects cross-origin or forged metadata", async () => {
+    const e = event()
+    e.context.body = { recommendationId: `${"a".repeat(64)}:1` }
+    vi.mocked(recordAdoption).mockResolvedValue({ recommendationId: e.context.body.recommendationId, clickedAt: new Date(NOW).toISOString(), status: "recorded", alreadyRecorded: false })
+    expect(await adoption(e)).toMatchObject({ status: "recorded" })
+    expect(recordAdoption).toHaveBeenCalledWith(e.context.body.recommendationId)
+    e.context.body.score = 100
+    await expect(adoption(e)).rejects.toMatchObject({ statusCode: 400 })
+    e.context.headers = { origin: "http://evil.test" }
+    await expect(adoption(e)).rejects.toMatchObject({ statusCode: 403 })
+  })
+  it("reports storage failure as 503", async () => {
+    const e = event()
+    e.context.body = { recommendationId: `${"a".repeat(64)}:1` }
+    vi.mocked(recordAdoption).mockRejectedValue(new Error("disk full"))
+    await expect(adoption(e)).rejects.toMatchObject({ statusCode: 503 })
+  })
+  it("shows success only after an acknowledged write, permits retry and shows failures", async () => {
+    const html = await picksPage(event()) as string
+    const script = html.match(/<script id="__NEWS4_ADOPTION__">([\s\S]*?)<\/script>/)![1]
+    const status = { textContent: "" }
+    const button = { disabled: false, dataset: { recommendationId: `${"a".repeat(64)}:1` }, parentElement: { querySelector: () => status } }
+    let click: (e: any) => Promise<void> = async () => {}
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "recorded", recommendationId: button.dataset.recommendationId }) })
+    runInNewContext(script, { document: { addEventListener: (_: string, cb: typeof click) => {
+      click = cb
+    } }, fetch: fetcher })
+    await click({ target: { closest: () => button } })
+    expect(status.textContent).toBe("已记录")
+    expect(button.disabled).toBe(false)
+    await click({ target: { closest: () => button } })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    fetcher.mockRejectedValue(new Error("network"))
+    await click({ target: { closest: () => button } })
+    expect(status.textContent).toBe("记录失败，请重试")
+    expect(button.disabled).toBe(false)
+  })
+  it("fails closed on receipt failure and distinguishes service failure from an empty result", async () => {
+    vi.mocked(recordRecommendations).mockRejectedValue(new Error("disk full"))
+    await expect(scan(event())).rejects.toMatchObject({ statusCode: 503 })
+    const html = await picksPage(event()) as string
+    expect(html).toContain("推荐服务暂不可用")
+    expect(html).not.toContain("暂无匹配选题")
+    expect(embeddedData(html).picks).toEqual([])
+  })
+  it("records scores/versions, preserves explicit summaries, escapes HTML and keeps low scores", async () => {
+    sourceRows = { reuters: [
+      { ...row, title: "美国经济下滑 <img src=x onerror=\"alert(1)\">", summary: "日本消费者支出下降" },
+      { ...row, title: "中国企业融资需求增长", url: `${row.url}/cn` },
+    ] }
+    const html = await picksPage(event()) as string
+    const data = embeddedData(html)
+    expect(data.picks).toHaveLength(2)
+    expect(data.picks.map((p: any) => p.finalScore)).toEqual([...data.picks.map((p: any) => p.finalScore)].sort((a: number, b: number) => b - a))
+    expect(data.picks.some((p: any) => p.finalScore < 50)).toBe(true)
+    expect(data.picks.every((p: any) => p.recommendationId && p.scorerVersion === data.scorerVersion)).toBe(true)
+    expect(vi.mocked(recordRecommendations).mock.calls[0][0].picks.some((p: { summary?: string }) => p.summary === "日本消费者支出下降")).toBe(true)
+    expect(html).toContain("&lt;img")
+    expect(html).not.toContain("<img src=x onerror=\"alert(1)\">")
+  })
   it("retains the scan response fields and aggregates provenance before ranking", async () => {
     const data = await scan(event()) as any
     expect(data).toMatchObject({ timestamp: new Date(NOW).toISOString(), fetchedAt: NOW, totalScanned: 2, sourcesScanned: 2, fromCache: false })
@@ -72,7 +150,7 @@ describe("NEWS-3 offline scan and picks API contracts", () => {
     sourceRows = { reuters: [row, { ...row, title: "印刷版 |华尔街日报 - WSJ" }, { ...row, pubDate: NOW + 1 }, { ...row, pubDate: "bad" }] }
     const data = await scan(event({ debug: "1" })) as any
     expect(data).toMatchObject({ _debug: true, totalItems: 1, sourcesScanned: 1 })
-    expect(data.sourceLogs.find((s: any) => s.id === "reuters").rejected).toEqual({ navigation: 1, "future-date": 1, "invalid-date": 1 })
+    expect(data.sourceLogs.find((s: any) => s.id === "reuters").rejected).toEqual({ "navigation": 1, "future-date": 1, "invalid-date": 1 })
     expect(data).not.toHaveProperty("picks")
   })
   it("converts verified Jin10 local time and retains undated rows explicitly", async () => {
@@ -88,7 +166,7 @@ describe("NEWS-3 offline scan and picks API contracts", () => {
     vi.setSystemTime(NOW + 29 * 60000)
     const data = await scan(event()) as any
     expect(data).toMatchObject({ fromCache: true, fetchedAt: NOW, totalScanned: 42, sourcesScanned: 2 })
-    expect(data.picks).toEqual(scoreAndRank(inputs, Date.now()))
+    expect(data.picks.map(({ recommendationId, ...p }: any) => p)).toEqual(scoreAndRank(inputs, Date.now()))
     expect(sourceCalls).toEqual([])
   })
   it("refreshes at exactly 30 minutes and refresh=1 bypasses a fresh cache", async () => {
@@ -106,7 +184,9 @@ describe("NEWS-3 offline scan and picks API contracts", () => {
     configureRedis()
     db.set(CACHE_KEY, "{corrupt")
     expect(await scan(event())).toMatchObject({ fromCache: false, sourcesScanned: 2 })
-    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline Redis failure") }))
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("offline Redis failure")
+    }))
     expect(await scan(event())).toMatchObject({ fromCache: false, sourcesScanned: 2 })
   })
   it("retains unexpired observations on a successful empty scan and advances metadata once", async () => {
@@ -136,7 +216,9 @@ describe("NEWS-3 offline scan and picks API contracts", () => {
     await scan(event())
     vi.setSystemTime(NOW + 30 * 60000)
     const expected = await import("../server/lib/redis-cache").then(m => m.getCachedSnapshot(Date.now()))
-    vi.stubGlobal("$fetch", vi.fn(async () => { throw new Error("offline fixture source failure") }))
+    vi.stubGlobal("$fetch", vi.fn(async () => {
+      throw new Error("offline fixture source failure")
+    }))
     expect(await scan(event())).toMatchObject({ fromCache: true, fetchedAt: NOW, totalScanned: 2, sourcesScanned: 2, picks: expected?.picks })
     expect(JSON.parse(db.get(CACHE_KEY)!).fetchedAt).toBe(NOW)
   })

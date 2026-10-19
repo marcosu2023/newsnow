@@ -2,6 +2,8 @@ export type DateStatus = "valid" | "missing" | "invalid" | "future"
 
 export interface CandidateInput {
   title: string
+  /** Optional summary supplied by the original source API; never generated from a publication. */
+  summary?: string
   url: string
   sourceId: string
   sourceName: string
@@ -36,7 +38,7 @@ export function parseSourceDate(value: unknown, sourceId: string): { pubDate?: n
         const calendar = Date.UTC(+y, +m - 1, +d, +hh, +mm, +ss)
         if (new Date(calendar).toISOString().slice(0, 19) !== `${y}-${m}-${d}T${hh}:${mm}:${ss}`) return { dateStatus: "invalid" }
       } else {
-        const rfc = /^(?:[A-Za-z]{3},?\s+)?(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?\s+(?:GMT|UTC|[+-]\d{4})$/i.exec(text)
+        const rfc = /^(?:[A-Z]{3},?\s+)?(\d{1,2})\s+([A-Z]{3})\s+(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?\s+(?:GMT|UTC|[+-]\d{4})$/i.exec(text)
         if (!rfc) return { dateStatus: "invalid" }
         const [, d, month, y, hh, mm, seconds] = rfc
         const m = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(month.toLowerCase())
@@ -60,7 +62,7 @@ export function parseSourceDate(value: unknown, sourceId: string): { pubDate?: n
 export function candidateRejection(item: CandidateInput, now: number): string | undefined {
   if (!item.title || [...item.title.trim()].length < 6) return "short-title"
   if (item.sourceId === "xueqiu-hotstock" || item.sourceId === "xueqiu") return "stock-quote"
-  if (/^(?:印刷版|纸质版|电子报|首页|登录|订阅|关于我们|联系我们|隐私政策|服务条款|数字报|print edition|sign in|subscribe)(?:\s|[|｜:：—-]|$)/i.test(item.title.trim())) return "navigation"
+  if (/^(?:印刷版|纸质版|电子报|首页|登录|订阅|关于我们|联系我们|隐私政策|服务条款|数字报|print edition|sign in|subscribe)(?:[\s|｜:：—\-]|$)/i.test(item.title.trim())) return "navigation"
   try {
     const url = new URL(item.url)
     if (url.protocol !== "http:" && url.protocol !== "https:") return "invalid-url"
@@ -84,7 +86,7 @@ export function entityText(title: string): string {
   const defaultCompanies = new Set(["苹果", "小米", "阿里", "字节"])
   const contexts: Record<string, RegExp> = {
     哪吒: /汽车|新能源|合众|交付|销量|造车|停产|欠薪/,
-    理想: /汽车|新能源|交付|销量|造车|李想|L[6789]|MEGA/i,
+    理想: /汽车|新能源|交付|销量|造车|李想|L[6-9]|MEGA/i,
     大众: /汽车|车型|新能源|销量|交付|工厂|ID\.|高尔夫|帕萨特/i,
   }
   // Keep length and other words intact, so one homonym cannot erase another company
@@ -111,6 +113,6 @@ export function entityText(title: string): string {
 
 export function isChinaUsTrade(title: string): boolean {
   return /中美/.test(title)
-    || /(?:美国|美方|美政府|白宫|华盛顿)/.test(title) && /(?:中国|中方|对华|中企|华为)/.test(title) && /关税|制裁|贸易|出口管制|对华|对美/.test(title)
-    || /(?:中国|中方)/.test(title) && /对美/.test(title)
+    || (/美国|美方|美政府|白宫|华盛顿/.test(title) && /中国|中方|对华|中企|华为/.test(title) && /关税|制裁|贸易|出口管制|对华|对美/.test(title))
+    || (/中国|中方/.test(title) && /对美/.test(title))
 }

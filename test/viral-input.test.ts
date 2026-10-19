@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { candidateRejection, MAX_AGE_MS, parseSourceDate } from "../server/lib/viral-input"
+import { MAX_AGE_MS, candidateRejection, parseSourceDate } from "../server/lib/viral-input"
 import { scoreAndRank, scoreTitle } from "../server/lib/viral-scorer"
 
 const now = Date.parse("2026-10-05T04:00:00Z")
@@ -15,7 +15,7 @@ describe("source timestamp normalization", () => {
     expect(parseSourceDate("2026-10-05T12:00:00+08:00", "reuters").pubDate).toBe(now)
     expect(parseSourceDate(now, "reuters").pubDate).toBe(now)
   })
-  it.each([NaN, Infinity, 0, now / 1000, "2026-10-05 12:00:00", "nonsense"])("does not infer an unknown time: %s", value => expect(parseSourceDate(value, "mktnews-flash").dateStatus).toBe("invalid"))
+  it.each([Number.NaN, Infinity, 0, now / 1000, "2026-10-05 12:00:00", "nonsense"])("does not infer an unknown time: %s", value => expect(parseSourceDate(value, "mktnews-flash").dateStatus).toBe("invalid"))
   it("rejects invalid calendar days", () => expect(parseSourceDate("2026-02-30 12:00:00", "jin10").dateStatus).toBe("invalid"))
   it.each(["2026-02-30T12:00:00+08:00", "2026-10-05T24:00:00Z", "2026-13-01T12:00:00Z"])("rejects ISO calendar rollover: %s", value => expect(parseSourceDate(value, "reuters").dateStatus).toBe("invalid"))
   it.each(["2026-02-30T12:00Z", "Mon, 30 Feb 2026 12:00:00 GMT"])("rejects rollover in every accepted date format: %s", value => expect(parseSourceDate(value, "reuters").dateStatus).toBe("invalid"))
@@ -27,17 +27,17 @@ describe("candidate age rules at one evaluation time", () => {
   it("rejects future timestamps, rather than calling them fresh", () => {
     expect(candidateRejection({ ...base, pubDate: now + 3600000 }, now)).toBe("future-date")
     expect(scoreAndRank([{ ...base, pubDate: now + 3600000 }], now)).toEqual([])
-    expect(scoreTitle(base.title, base.sourceId, base.sourceName, now + 3600000, now)).toMatchObject({ hoursAgo: -1, finalScore: 0, grade: "D", dateStatus: "future" })
+    expect(scoreTitle(base.title, base.sourceId, base.sourceName, now + 3600000, now)).toMatchObject({ hoursAgo: -1, grade: "未分档", dateStatus: "future" })
   })
   it("uses an exact 8 hour boundary, not rounded display hours", () => {
     expect(scoreAndRank([{ ...base, pubDate: now - MAX_AGE_MS + 1 }], now)).toHaveLength(1)
     expect(scoreAndRank([{ ...base, pubDate: now - MAX_AGE_MS }], now)).toHaveLength(0)
   })
-  it("expires undated items from first observation and decays them", () => {
+  it("expires undated items from first observation without changing factor weights", () => {
     const fresh = scoreAndRank([{ ...base, _scanTime: now }], now)[0]
     const old = scoreAndRank([{ ...base, _scanTime: now }], now + 3600000)[0]
     expect(old.dateStatus).toBe("missing")
-    expect(old.finalScore).toBeLessThan(fresh.finalScore)
+    expect(old.finalScore).toBe(fresh.finalScore)
     expect(old.pubDate).toBeUndefined()
     expect(scoreAndRank([{ ...base, _scanTime: now }], now + MAX_AGE_MS)).toHaveLength(0)
   })

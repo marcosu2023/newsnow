@@ -1,4 +1,5 @@
-import { scoreAndRank, type CandidateInput, type ScoredItem } from "./viral-scorer"
+import process from "node:process"
+import { type CandidateInput, type ScoredItem, scoreAndRank } from "./viral-scorer"
 
 // Versioned keys isolate legacy scores/provenance and make rollback independent.
 export const CACHE_KEY = "viral:picks:v2"
@@ -35,7 +36,7 @@ async function redisCmd(cmd: string[]): Promise<unknown> {
   if (!env) return null
   const res = await fetch(env.url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${env.token}`, "Content-Type": "application/json" },
+    headers: { "Authorization": `Bearer ${env.token}`, "Content-Type": "application/json" },
     body: JSON.stringify(cmd),
   })
   if (!res.ok) throw new Error(`Redis error: ${res.status}`)
@@ -47,11 +48,11 @@ async function redisCmd(cmd: string[]): Promise<unknown> {
 function isObservation(value: unknown): value is CachedObservation {
   if (!value || typeof value !== "object") return false
   const p = value as Partial<CachedObservation>
-  return typeof p.title === "string" && typeof p.url === "string"
+  return typeof p.title === "string" && (p.summary === undefined || typeof p.summary === "string") && typeof p.url === "string"
     && typeof p.sourceId === "string" && typeof p.sourceName === "string"
     && typeof p._scanTime === "number" && Number.isFinite(p._scanTime)
     && typeof p.lastSeen === "number" && Number.isFinite(p.lastSeen)
-    && (p.pubDate === undefined || typeof p.pubDate === "number" && Number.isFinite(p.pubDate))
+    && (p.pubDate === undefined || (typeof p.pubDate === "number" && Number.isFinite(p.pubDate)))
     && (p.dateStatus === undefined || ["valid", "missing", "invalid", "future"].includes(p.dateStatus))
 }
 
@@ -100,7 +101,7 @@ export async function savePicks(newPicks: ScoredItem[], metadata?: ScanMetadata,
   for (const p of cached?.observations ?? []) {
     if (p.lastSeen <= now && now - p.lastSeen < TTL_SECONDS * 1000) observations.set(keyFor(p), p)
   }
-  for (const p of newPicks.flatMap(p => p.sources ?? [{ title: p.title, url: p.url, sourceId: p.sourceId, sourceName: p.source, pubDate: p.pubDate, dateStatus: p.dateStatus, _scanTime: p._scanTime }])) {
+  for (const p of newPicks.flatMap(p => p.sources ?? [{ title: p.title, summary: p.summary, url: p.url, sourceId: p.sourceId, sourceName: p.source, pubDate: p.pubDate, dateStatus: p.dateStatus, _scanTime: p._scanTime }])) {
     const key = keyFor(p)
     const old = observations.get(key)
     observations.set(key, { ...p, _scanTime: Math.min(old?._scanTime ?? now, p._scanTime ?? now), lastSeen: now })

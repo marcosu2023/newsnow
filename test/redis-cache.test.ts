@@ -25,7 +25,11 @@ beforeEach(() => {
     throw new Error(`Unexpected command: ${cmd[0]}`)
   }))
 })
-afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers() })
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+  vi.useRealTimers()
+})
 
 describe("cache recomputes the same pipeline as a fresh scan", () => {
   it("recomputes score, grade, age, rank and aggregation at the current time", async () => {
@@ -37,7 +41,7 @@ describe("cache recomputes the same pipeline as a fresh scan", () => {
     expect(snapshot).toMatchObject({ fetchedAt: NOW, totalScanned: 123, sourcesScanned: 3 })
     expect(snapshot?.picks.find(p => p.title === rows[0].title)).toMatchObject({ sourceCount: 2, isExclusive: false })
   })
-  it("does not retain the historical high score when rescanning", async () => {
+  it("recomputes the versioned score without unapproved time decay", async () => {
     const rows = [input()]
     const first = scoreAndRank(rows, NOW)
     await savePicks(first, undefined, NOW)
@@ -45,7 +49,8 @@ describe("cache recomputes the same pipeline as a fresh scan", () => {
     const fresh = scoreAndRank(rows, later)
     const merged = await savePicks(fresh, undefined, later)
     expect(merged[0].finalScore).toBe(fresh[0].finalScore)
-    expect(merged[0].finalScore).toBeLessThan(first[0].finalScore)
+    expect(merged[0].finalScore).toBe(first[0].finalScore)
+    expect(merged[0].hoursAgo).toBe(1)
   })
   it("uses the same normalized group key and preserves different sources", async () => {
     await savePicks(scoreAndRank([input("快讯：华为宣布推出全新手机产品")], NOW), undefined, NOW)

@@ -4,7 +4,7 @@ import { ourongxing, react } from "@ourongxing/eslint-config"
 const config = ourongxing({
   type: "app",
   // 貌似不能 ./ 开头，
-  ignores: ["src/routeTree.gen.ts", "imports.app.d.ts", "public/", ".vscode", "**/*.json"],
+  ignores: ["src/routeTree.gen.ts", "imports.app.d.ts", "public/", ".vscode", "**/*.json", "server/lib/news4-v1/**"],
 }).append(react({
   files: ["src/**"],
 }))

@@ -1,25 +1,23 @@
 import { defineEventHandler, getQuery } from "h3"
 import { getGroupKey } from "../lib/viral-scorer"
 import { candidateRejection } from "../lib/viral-input"
+import { scorerVersion } from "../lib/news4-v1/scorer.mjs"
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
   const forceRefresh = query.refresh === "1"
 
   let data: any = { picks: [], totalScanned: 0, sourcesScanned: 0 }
+  let unavailable = false
   try {
     data = await $fetch("/api/viral-scan", forceRefresh ? { query: { refresh: "1" } } : {})
-  } catch {}
+  } catch {
+    unavailable = true
+  }
 
   // Hard cap: only show news from the last 8 hours
   const nowMs = Date.now()
   const picks = (data.picks || []).filter((p: any) => !candidateRejection({ ...p, sourceName: p.source }, nowMs))
-
-  // Publish slot by mechanism (data from v3 analysis)
-  const slotByMech: Record<string, string> = {
-    争议: "建议 8:00–11:00 发",
-    裂变: "建议 15:00–17:00 发",
-  }
 
   // Single list: score descending, each story group appears once
   const used = new Set<string>()
@@ -46,12 +44,16 @@ export default defineEventHandler(async (event) => {
     return `${Math.round(h / 24)}天前`
   }
 
+  function escapeHtml(value: unknown): string {
+    return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;")
+  }
+
   function tagsOf(p: any): string[] {
     return [...(p.domainHits || []), ...(p.scaleHits || []), ...(p.socialHits || []), ...(p.narrativeHits || [])].slice(0, 2)
   }
 
   function metaLine(p: any): string {
-    const parts = [p.source]
+    const parts = [escapeHtml(p.source), scorerVersion]
     if (p.sourceCount > 1) parts.push(`${p.sourceCount}源报道`)
     if (p.isExclusive) parts.push("独家")
     const time = timeLabel(p)
@@ -64,19 +66,26 @@ export default defineEventHandler(async (event) => {
     return `<div class="risk">风险 -${p.svPenalty}% ${p.riskHits.map((r: any) => r.label).join("、")}</div>`
   }
 
+  function adoptionHtml(p: any): string {
+    const id = String(p.recommendationId ?? "")
+    const match = /^([a-f0-9]{64}):([1-9]\d{0,8})$/.exec(id)
+    if (!match) return "<div class=\"meta-line\">推荐记录不可用</div>"
+    const shortId = `${match[1].slice(0, 8)}:${match[2]}`
+    return `<div class="adoption"><span>推荐 ID ${shortId}</span> <button type="button" class="btn adopt" data-recommendation-id="${id}">采用</button><span class="adoption-status" role="status" aria-live="polite"></span></div>`
+  }
+
   function topCardHtml(p: any, i: number): string {
     const tags = tagsOf(p)
-    const slot = slotByMech[p.mechanism]
     return `<div class="card${i === 0 ? " first" : ""}">
       <div class="card-hd">
-        <span class="mech">${i === 0 ? "今日首推 · " : ""}${p.mechanism || "流量"}</span>
-        <span class="card-score">${p.finalScore}</span>
+        <span class="mech">${i === 0 ? "今日首推 · " : ""}${p.mechanism || "规则排序"}</span>
+        <span class="card-score">${Number(p.finalScore).toFixed(2)}</span>
       </div>
-      <a class="card-title" href="${p.url}" target="_blank" rel="noopener">${p.title}</a>
+      <a class="card-title" href="${escapeHtml(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.title)}</a>
       <div class="meta-line">${metaLine(p)}</div>
-      ${tags.length ? `<div class="reason">推荐理由：${tags.join("、")}</div>` : ""}
-      ${slot ? `<div class="slot">${slot}</div>` : ""}
+      ${tags.length ? `<div class="reason">推荐理由：${tags.map(escapeHtml).join("、")}</div>` : ""}
       ${riskLine(p)}
+      ${adoptionHtml(p)}
     </div>`
   }
 
@@ -85,11 +94,12 @@ export default defineEventHandler(async (event) => {
     return `<div class="row">
       <span class="rank">${rank}</span>
       <div class="row-main">
-        <a class="row-title" href="${p.url}" target="_blank" rel="noopener"><span class="mech-sm">【${p.mechanism || "流量"}】</span>${p.title}</a>
-        <div class="meta-line">${metaLine(p)}${tags.map(t => `<span class="tag">${t}</span>`).join("")}</div>
+        <a class="row-title" href="${escapeHtml(p.url)}" target="_blank" rel="noopener"><span class="mech-sm">【${p.mechanism || "规则排序"}】</span>${escapeHtml(p.title)}</a>
+        <div class="meta-line">${metaLine(p)}${tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("")}</div>
         ${riskLine(p)}
+      ${adoptionHtml(p)}
       </div>
-      <span class="row-score">${p.finalScore}</span>
+      <span class="row-score">${Number(p.finalScore).toFixed(2)}</span>
     </div>`
   }
 
@@ -100,16 +110,27 @@ export default defineEventHandler(async (event) => {
   // Downstream code locates this by: <script id="__VIRAL_DATA__" type="application/json">
   const embeddedData = {
     version: "4.0",
+    scorerVersion,
+    recommendationBatchId: data.recommendationBatchId ?? null,
+    recommendationRecordStatus: data.recommendationRecordStatus ?? "unavailable",
     generatedAt: data.timestamp || Date.now(),
     fetchedAt,
     totalScanned: data.totalScanned || 0,
     sourcesScanned: data.sourcesScanned || 0,
     windowHours: 8,
-    picks: picks.map((p: any) => ({
+    picks: ranked.map((p: any) => ({
       title: p.title,
       url: p.url,
       source: p.source,
       finalScore: p.finalScore,
+      displayScore: p.displayScore,
+      scorerVersion: p.scorerVersion,
+      recommendationId: p.recommendationId,
+      inputSha256: p.inputSha256,
+      rulesSha256: p.rulesSha256,
+      weightsSha256: p.weightsSha256,
+      summary: p.summary ?? null,
+      appliedRules: p.appliedRules || [],
       grade: p.grade,
       mechanism: p.mechanism,
       hoursAgo: p.hoursAgo ?? null,
@@ -177,6 +198,7 @@ export default defineEventHandler(async (event) => {
     details{margin-top:12px}
     summary{cursor:pointer;font-size:12px;color:#6b7280;padding:8px 0;text-align:center}
     .empty{font-size:12px;color:#9ca3af;text-align:center;padding:20px}
+    .adoption{font-size:11px;color:#6b7280;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
     .ft{font-size:10px;color:#9ca3af;text-align:center;padding:16px}
   </style>
 </head>
@@ -186,7 +208,7 @@ export default defineEventHandler(async (event) => {
     <a class="btn" href="/api/viral-picks?refresh=1">刷新</a>
   </div>
   ${ranked.length === 0
-    ? "<div class=\"empty\">暂无匹配选题</div>"
+    ? unavailable ? "<div class=\"empty\">推荐服务暂不可用，请稍后重试</div>" : "<div class=\"empty\">暂无匹配选题</div>"
     : `<div class="top">${topPicks.map(topCardHtml).join("")}</div>
   ${listPicks.length ? `<div class="list">${listPicks.map((p, i) => rowHtml(p, i + 4)).join("")}</div>` : ""}
   ${morePicks.length ? `<details><summary>展开更多（${morePicks.length} 条）</summary><div class="list">${morePicks.map((p, i) => rowHtml(p, i + 11)).join("")}</div></details>` : ""}`}
@@ -203,6 +225,25 @@ export default defineEventHandler(async (event) => {
     </div>
   </div>
   ${embeddedJson}
+  <script id="__NEWS4_ADOPTION__">
+  document.addEventListener("click", async function(event) {
+    const button = event.target.closest && event.target.closest("button.adopt");
+    if (!button || button.disabled) return;
+    const status = button.parentElement.querySelector(".adoption-status");
+    button.disabled = true;
+    status.textContent = "记录中…";
+    try {
+      const response = await fetch("/api/news4-adoptions", {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin",
+        body: JSON.stringify({ recommendationId: button.dataset.recommendationId })
+      });
+      const result = await response.json();
+      if (!response.ok || result.status !== "recorded" || result.recommendationId !== button.dataset.recommendationId) throw new Error("not recorded");
+      status.textContent = "已记录";
+    } catch { status.textContent = "记录失败，请重试"; }
+    finally { button.disabled = false; }
+  });
+  </script>
 </body>
 </html>`
 

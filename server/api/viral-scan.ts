@@ -1,7 +1,18 @@
-import { defineEventHandler, getQuery } from "h3"
+import { createError, defineEventHandler, getQuery } from "h3"
 import { type CandidateInput, scoreAndRank } from "../lib/viral-scorer"
 import { candidateRejection, parseSourceDate } from "../lib/viral-input"
 import { getCachedSnapshot, isRedisConfigured, savePicks } from "../lib/redis-cache"
+
+import { recordRecommendations } from "../lib/news4-recommendations"
+
+async function attachReceipt<T extends { picks: any[], fetchedAt: number, totalScanned: number, sourcesScanned: number }>(snapshot: T) {
+  try {
+    const receipt = await recordRecommendations(snapshot)
+    return { ...snapshot, ...receipt, picks: snapshot.picks.map((p, i) => ({ ...p, recommendationId: `${receipt.recommendationBatchId}:${i + 1}` })) }
+  } catch {
+    throw createError({ statusCode: 503, statusMessage: "Recommendation record unavailable" })
+  }
+}
 
 // Sources to scan — premium + Chinese finance/business sources
 const SCAN_SOURCES = [
@@ -31,13 +42,14 @@ async function fetchAllSources(debug: boolean, observedAt: number) {
   const results = await Promise.allSettled(
     SCAN_SOURCES.map(async (src) => {
       try {
-        const res = await $fetch<{ items?: { id?: string | number, title?: string, url?: string, pubDate?: number | string, extra?: { date?: string | number } }[] }>(`/api/s`, {
+        const res = await $fetch<{ items?: { id?: string | number, title?: string, summary?: string, url?: string, pubDate?: number | string, extra?: { date?: string | number } }[] }>(`/api/s`, {
           query: { id: src.id, latest: "true" },
         })
         const rejected: Record<string, number> = {}
         const items = (res.items || [])
           .map(item => ({
             title: item.title || "",
+            summary: typeof item.summary === "string" ? item.summary : undefined,
             url: item.url || "",
             sourceId: src.id,
             sourceName: src.name,
@@ -90,14 +102,14 @@ export default defineEventHandler(async (event) => {
       const now = Date.now()
       const cached = await getCachedSnapshot(now)
       if (cached && now - cached.fetchedAt < 30 * 60 * 1000) {
-        return {
+        return attachReceipt({
           timestamp: new Date().toISOString(),
           fetchedAt: cached.fetchedAt,
           totalScanned: cached.totalScanned,
           sourcesScanned: cached.sourcesScanned,
           fromCache: true,
           picks: cached.picks,
-        }
+        })
       }
     } catch {
       // Redis error → fall through to live scan
@@ -129,7 +141,7 @@ export default defineEventHandler(async (event) => {
   if (redisOk && sourcesSucceeded === 0) {
     try {
       const cached = await getCachedSnapshot(now)
-      if (cached) return { timestamp: new Date(now).toISOString(), fetchedAt: cached.fetchedAt, totalScanned: cached.totalScanned, sourcesScanned: cached.sourcesScanned, fromCache: true, picks: cached.picks }
+      if (cached) return attachReceipt({ timestamp: new Date(now).toISOString(), fetchedAt: cached.fetchedAt, totalScanned: cached.totalScanned, sourcesScanned: cached.sourcesScanned, fromCache: true, picks: cached.picks })
     } catch {}
   }
   const ranked = scoreAndRank(allItems, now)
@@ -145,12 +157,12 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  return {
+  return attachReceipt({
     timestamp: new Date().toISOString(),
     fetchedAt: now,
     totalScanned: allItems.length,
     sourcesScanned,
     fromCache: false,
     picks: finalPicks.slice(0, 50),
-  }
+  })
 })
