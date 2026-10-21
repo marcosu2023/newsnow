@@ -10,3 +10,14 @@ dist/
 .env.*
 dev-dist
 *.tsbuildinfo
+
+# Local coordination, private evidence, and agent/browser state are not build inputs.
+coordination/
+.claude/
+.agents/
+.playwright-mcp/
+.runtime/
+AGENTS.md
+CLAUDE.md
+.mcp.json
+.git/
