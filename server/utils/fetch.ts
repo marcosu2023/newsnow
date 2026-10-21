@@ -31,7 +31,6 @@ function initProxyFetch(): Promise<typeof $fetch> {
       headers: defaultHeaders,
       timeout: 15000,
       retry: 3,
-      // @ts-expect-error undici dispatcher passed to Node.js built-in fetch
       dispatcher: new ProxyAgent(proxyUrl),
     })
   }).catch((error) => {

@@ -1,3 +1,5 @@
+import { parseSourceDate } from "../lib/viral-input"
+
 interface Jin10Item {
   id: string
   time: string
@@ -37,7 +39,8 @@ export default defineSource(async () => {
     return {
       id: k.id,
       title: title ?? text,
-      pubDate: parseRelativeDate(k.time, "Asia/Shanghai").valueOf(),
+      // Keep invalid raw values visible to the candidate guard, rather than making them undated.
+      pubDate: parseSourceDate(k.time, "jin10").pubDate ?? k.time,
       url: `https://flash.jin10.com/detail/${k.id}`,
       extra: {
         hover: desc,
